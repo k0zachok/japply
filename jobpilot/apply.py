@@ -30,7 +30,7 @@ NEXT_BTN = re.compile(r"^\W*(continue|next|weiter|fortfahren|nächster schritt|s
                       r"review( your)? application|bewerbung prüfen)", re.I)
 SUBMIT_BTN = re.compile(r"submit|absenden|abschicken|send application|bewerbung (ab)?senden|^\W*(apply|jetzt bewerben|"
                         r"bewerben|senden|send)\b", re.I)
-BLOCKED = re.compile(r"request blocked|you have been blocked|access denied|verify (that )?you are (a )?human|"
+BLOCKED = re.compile(r"request blocked|performing security verification|you have been blocked|access denied|verify (that )?you are (a )?human|"
                      r"unusual traffic|are you a robot", re.I)
 SUCCESS = re.compile(r"thank you|thanks for|danke|vielen dank|application (has been |was )?(received|submitted|sent)|"
                      r"successfully (submitted|applied|sent)|bewerbung (ist |wurde )?(eingegangen|erhalten|gesendet|"
@@ -49,7 +49,7 @@ RULES = [
     (r"linkedin", "linkedin"),
     (r"github|gitlab", "github"),
     (r"salary|gehalt|compensation|vergütung", "salary_expectation"),
-    (r"start date|earliest|eintritt|frühest|available from|verfügbar ab|notice period|kündigungsfrist|when can you",
+    (r"start date(?! ?(month|year))|earliest|eintritt|frühest|available from|verfügbar ab|notice period|kündigungsfrist|when can you",
      "earliest_start"),
     (r"work permit|work authori[sz]ation|right to work|arbeitserlaubnis|arbeitsgenehmigung|visa|sponsorship",
      "work_permit"),
@@ -685,6 +685,10 @@ def _send_email(cfg, job, to: str, letter: str, attachments: list[Path], folder:
 # ------------------------------------------------------------------ main loop
 def _target_url(job: dict) -> str:
     u = job["url"]
+    if job["source"] == "greenhouse" and "greenhouse.io" not in u:
+        # The company's own careers page only embeds this Greenhouse form (and is often behind a bot wall).
+        slug, _, jid = job["id"].split(":", 1)[1].rpartition("-")
+        return f"https://job-boards.greenhouse.io/embed/job_app?for={slug}&token={jid}"
     return u.rstrip("/") + "/apply" if job["source"] == "arbeitnow" and "arbeitnow." in u else u
 
 

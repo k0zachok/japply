@@ -140,6 +140,7 @@ max_per_run = 8                # at most this many applications per run (sized t
 headless = true              # false = watch the browser fill the forms
 tailor_cv = true             # false = always upload cv_pdf instead of a tailored CV
 cv_pdf = ""                  # your designed CV PDF (used when tailor_cv = false)
+transcript_pdf = ""          # path to your transcript of records (PDF); some internships require it
 accept_privacy = true        # tick the employer's data-privacy consent box (they require it to apply)
 # Sites that need an account: skipped unless you signed in once with  python -m jobpilot login <site>
 # (that saves the session in browser_profile/; no password is stored).

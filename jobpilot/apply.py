@@ -392,6 +392,18 @@ def _fill(cfg, con, llm, job, fr, fields, cv_pdf: Path, letter_pdf: Path, letter
             loc(f).set_input_files(str(cv_pdf))
         elif f is letter_field or re.search(r"cover|anschreiben|motivation|letter", hay(f)):
             loc(f).set_input_files(str(letter_pdf))
+        elif re.search(r"transcript|zeugnis|records|grades|notenspiegel|studienerfolg", hay(f)):
+            tp = Path(str(a.get("transcript_pdf") or "")).expanduser()
+            if a.get("transcript_pdf") and tp.is_file():
+                loc(f).set_input_files(str(tp))
+            elif f["required"]:
+                raise NeedsYou("this form requires your transcript of records — set transcript_pdf under [apply] "
+                               "in config.toml to the PDF's path, then retry")
+            else:
+                continue
+        elif f["required"]:
+            raise NeedsYou(f"this form requires a document I don't have: “{f['label'][:60]}” — apply by hand "
+                           f"(python -m jobpilot finish)")
         else:
             continue
         filled += 1

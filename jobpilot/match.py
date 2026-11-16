@@ -165,7 +165,10 @@ def ai_score_all(cfg: dict, con, llm, log=print) -> int:
     cv = load_cv_text(cfg)
     lc = cfg["llm"]
     rows = con.execute(
-        "SELECT * FROM jobs WHERE status IN ('new','saved') AND ai_score IS NULL AND kw_score >= ? "
+        "SELECT * FROM jobs WHERE status IN ('new','saved') AND ai_score IS NULL AND (kw_score >= ? "
+        # commutable student / entry-level jobs are rare, so they get an AI look even on a weak keyword score
+        "OR (where_ok != 'remote' AND kw_score >= 8 AND (types LIKE '%intern%' OR types LIKE '%working_student%' "
+        "OR types LIKE '%trainee%' OR types LIKE '%thesis%'))) "
         "ORDER BY kw_score DESC LIMIT ?", (lc.get("min_keyword_score", 20), lc.get("score_top_n", 60))).fetchall()
     # what you approved / rejected so far teaches the model your taste
     liked = [f"{x['title']} — {x['company']}" for x in con.execute(
@@ -230,7 +233,7 @@ def triage(cfg: dict, con, ai_on: bool) -> dict:
             verdict, s = ai.get("verdict", "maybe"), r["ai_score"]
             if ai.get("german_required") == "fluent" and cfg["profile"].get("german_level", "B1").upper() < "C1":
                 red.append("fluent German")
-            if verdict == "skip" or s < lo:
+            if s < lo:               # the score decides; a "skip" verdict above the bar still goes to Review
                 st = "skipped"
             elif verdict == "apply" and s >= hi and not red:
                 st = "queued"

@@ -135,7 +135,7 @@ min_keyword_score = 20       # below this a job isn't sent to the AI at all
 enabled = true
 dry_run = false              # false = really submit. true = fill the form and screenshot only.
 auto_min_score = 75          # AI says "apply", score >= this, no red flags  -> applied automatically
-review_min_score = 45        # between the two -> Review tab (you press Apply or Reject); below -> skipped
+review_min_score = 30        # between the two -> Review tab (you press Apply or Reject); below -> skipped
 max_per_run = 8                # at most this many applications per run (sized to the free Gemini quota)
 headless = true              # false = watch the browser fill the forms
 tailor_cv = true             # false = always upload cv_pdf instead of a tailored CV

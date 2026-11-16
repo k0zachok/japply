@@ -369,7 +369,17 @@ def _fill(cfg, con, llm, job, fr, fields, cv_pdf: Path, letter_pdf: Path, letter
     filled, unknown, groups, files = 0, [], {}, [f for f in fields if f["type"] == "file"]
 
     # ---- uploads
-    hay = lambda f: f"{f['label'][:60]} {f['name']}".lower()
+    for f in files:      # upload widgets (Greenhouse) label a wrapping group, not the hidden <input>
+        try:
+            g = loc(f).evaluate("""e => { const w = e.closest('[role=group][aria-labelledby], .file-upload, fieldset');
+                if (!w) return null; const id = w.getAttribute('aria-labelledby');
+                const l = (id && document.getElementById(id)) || w.querySelector('.label, legend, label');
+                return {label: l ? l.innerText.trim() : '', req: w.getAttribute('aria-required') === 'true' || !!w.querySelector('.required')}; }""")
+        except Exception:
+            g = None
+        if g and g["label"] and len(g["label"]) > len(f["label"]):
+            f["label"], f["required"] = g["label"], f["required"] or g["req"]
+    hay = lambda f: f"{f['label'][:120]} {f['name']}".lower()
     cv_field = next((f for f in files if re.search(r"resume|\bcv\b|lebenslauf|curriculum", hay(f))), None)
     letter_field = None
     if cv_field is None and files and not any(f["label"].strip() for f in files):

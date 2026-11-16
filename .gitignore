@@ -1,0 +1,12 @@
+browser_profile/
+.venv/
+__pycache__/
+applications/
+jobpilot.db
+run.log
+llm_quota.json
+config.toml
+cv.md
+cv.de.md
+*.pdf
+.DS_Store

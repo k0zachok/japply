@@ -1,0 +1,247 @@
+# JobPilot configuration. Edit freely; everything is local.
+
+[profile]
+name = "Your Name"
+cv_file = "cv.md"            # Markdown or .pdf (PDF needs: pip install pypdf)
+target_roles = [
+  "python developer", "python engineer", "data engineer", "backend developer",
+  "backend engineer", "software engineer", "software developer", "machine learning",
+  "ml engineer", "ai engineer", "data scientist", "data analyst", "mlops",
+  "etl", "scraping", "data platform", "python",
+]
+skills = [
+  "python", "sql", "bash", "fastapi", "django", "flask", "rest api", "rabbitmq",
+  "pytest", "react", "mongodb", "postgresql", "postgres", "docker", "aws", "lambda",
+  "cloud run", "gcp", "git", "github actions", "ci/cd", "pandas", "numpy",
+  "scikit-learn", "sklearn", "pytorch", "matplotlib", "machine learning",
+  "web scraping", "scraping", "crawler", "etl", "data pipeline", "llm", "nlp",
+  "computer vision", "airflow", "kafka", "linux", "api",
+]
+german_level = "B1"          # jobs that demand fluent/C1 German get flagged + penalised
+english_level = "C1"
+max_years_required = 2       # flag jobs that ask for more years than this
+
+[search]
+# Used for keyword-search sources (Adzuna, Himalayas, Jobicy) — German + English on purpose.
+keywords = [
+  "python", "data engineer", "machine learning", "backend developer",
+  "software engineer junior", "data scientist", "ai engineer", "data analyst",
+  "werkstudent informatik", "werkstudent python", "working student software",
+  "praktikum data", "praktikum software", "masterarbeit data science",
+]
+# Places you can commute to. Postcodes 1010–1230 are recognised automatically.
+commute_locations = [
+  "wien", "vienna", "schwechat", "mödling", "klosterneuburg", "wiener neudorf",
+  "vösendorf", "brunn am gebirge", "perchtoldsdorf", "purkersdorf", "gerasdorf",
+]
+include_remote = true
+# Remote jobs are kept only if open to one of these regions (or no restriction given).
+remote_regions_ok = [
+  "worldwide", "anywhere", "global", "europe", "european", "emea", "eu", "austria",
+  "österreich", "dach", "germany", "deutschland", "cet", "cest", "remote",
+]
+# Which kinds of jobs you want. Remove any you don't.
+job_types = ["full_time", "part_time", "working_student", "internship", "thesis", "trainee", "freelance"]
+max_age_days = 30
+exclude_title_words = ["senior", "sr.", "lead", "principal", "head of", "staff engineer", "director", "architect", "manager"]
+
+# ---------------- Sources ----------------
+# Biggest Vienna feed. Free key (2 min): https://developer.adzuna.com  -> paste below.
+[sources.adzuna]
+enabled = true
+app_id = ""
+app_key = ""
+country = "at"
+where = "Wien"
+distance_km = 30
+pages_per_keyword = 2        # 50 jobs per page; free tier has a daily call limit
+
+# DACH board fed straight from company ATS systems. No key.
+[sources.arbeitnow]
+enabled = true
+pages = 15
+
+[sources.himalayas]          # remote, no key
+enabled = true
+pages_per_keyword = 2
+
+[sources.jobicy]             # remote, no key; asks for only a few calls a day
+enabled = true
+geo = "europe"
+
+[sources.remoteok]           # remote, no key
+enabled = true
+
+[sources.remotive]           # remote, no key; small 24h-delayed feed, max ~4 calls/day
+enabled = true
+
+[sources.weworkremotely]     # remote RSS
+enabled = true
+feeds = [
+  "https://weworkremotely.com/categories/remote-back-end-programming-jobs.rss",
+  "https://weworkremotely.com/categories/remote-full-stack-programming-jobs.rss",
+  "https://weworkremotely.com/categories/remote-devops-sysadmin-jobs.rss",
+]
+
+# Any extra RSS/Atom job feeds you find.
+[sources.rss]
+enabled = true
+feeds = []
+
+# Job-alert e-mails from karriere.at, LinkedIn, StepStone, AMS "alle jobs", willhaben, jobs.at …
+# Set alerts up on those sites (Wien + your keywords), then JobPilot reads them from your inbox.
+# Gmail: enable 2-step verification, create an App Password, paste it here.
+[sources.email_alerts]
+enabled = false
+imap_host = "imap.gmail.com"
+user = "you@example.com"
+app_password = ""
+folder = "INBOX"
+since_days = 14
+
+# Direct company career boards (public ATS APIs — freshest data, straight from employers).
+# Add more with:  python -m jobpilot discover "Company Name"
+# ats: greenhouse | lever | ashby | smartrecruiters | personio | workable | recruitee
+# Example — discover writes these for you:
+# [[companies]]
+# name = "Some Company"
+# ats = "personio"
+# slug = "somecompany"
+
+# ---------------- AI ----------------
+# provider: "ollama" (free, runs on your machine), "openai" (any OpenAI-compatible API,
+# e.g. Google Gemini free tier, Groq, OpenAI), "anthropic", or "none" (keyword matching only).
+[llm]
+provider = "openai"          # Gemini through its OpenAI-compatible API
+model = "gemini-3.5-flash-lite"
+# Rotation, strongest first. Each Gemini model has its own free daily quota; when one runs out (or is overloaded)
+# JobPilot moves to the next. Letters, CVs and form answers start from the top, bulk scoring from the bottom.
+models = [
+  "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3-flash-preview",
+  "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.1-flash-lite-preview", "gemini-flash-lite-latest",
+]
+base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+api_key = ""                 # leave empty and set the JOBPILOT_API_KEY environment variable instead
+# Gemini free tier example:
+#   provider = "openai"
+#   base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+#   model = "gemini-3.5-flash-lite"
+#   api_key = "YOUR_KEY"
+score_top_n = 40             # AI-score only the best N new jobs per run (sized to the free Gemini quota)
+min_keyword_score = 20       # below this a job isn't sent to the AI at all
+
+# ---------------- Auto-apply ----------------
+[apply]
+enabled = true
+dry_run = false              # false = really submit. true = fill the form and screenshot only.
+auto_min_score = 75          # AI says "apply", score >= this, no red flags  -> applied automatically
+review_min_score = 45        # between the two -> Review tab (you press Apply or Reject); below -> skipped
+max_per_run = 8                # at most this many applications per run (sized to the free Gemini quota)
+headless = true              # false = watch the browser fill the forms
+tailor_cv = true             # false = always upload cv_pdf instead of a tailored CV
+cv_pdf = ""                  # your designed CV PDF (used when tailor_cv = false)
+accept_privacy = true        # tick the employer's data-privacy consent box (they require it to apply)
+# Sites that need an account: skipped unless you signed in once with  python -m jobpilot login <site>
+# (that saves the session in browser_profile/; no password is stored).
+skip_hosts = ["join.com", "linkedin.com", "indeed.com", "stepstone", "karriere.at", "xing.com", "workday", "myworkdayjobs.com"]
+# StepStone: python -m jobpilot login stepstone.at   Indeed: python -m jobpilot login at.indeed.com
+# LinkedIn stays skipped on purpose (accounts get banned for automation).
+
+[apply.answers]              # used to fill application forms. Leave "" if you'd rather be asked.
+first_name = ""
+last_name = ""
+email = "you@example.com"
+phone = ""
+linkedin = ""
+github = ""
+address = ""                 # street and number
+postcode = ""
+city = "Vienna"
+country = "Austria"
+salary_expectation = ""
+earliest_start = "As soon as possible"          # e.g. "immediately"
+work_permit = ""             # e.g. "Yes, I have the right to work in Austria (…)"
+
+# Jobs that ask for applications by e-mail. Gmail: use an App Password.
+[apply.email]
+enabled = true
+smtp_host = "smtp.gmail.com"
+smtp_port = 587
+user = "you@example.com"
+app_password = ""
+
+# The mailbox you apply with (ideally a separate address used only for job applications). JobPilot reads it
+# read-only to pick up verification codes and confirmation links that sites e-mail during an application.
+# Gmail: turn on 2-step verification, create an App Password, and put it in the JOBPILOT_MAILBOX_PASSWORD
+# environment variable (or app_password below).
+[apply.mailbox]
+enabled = true
+imap_host = "imap.gmail.com"
+user = "you@example.com"
+app_password = ""
+folder = "INBOX"
+
+[app]
+db_file = "jobpilot.db"
+applications_dir = "applications"
+port = 8765
+
+[[companies]]
+name = "Bitpanda"
+ats = "greenhouse"
+slug = "bitpanda"
+
+[[companies]]
+name = "GoStudent"
+ats = "greenhouse"
+slug = "gostudent"
+
+[[companies]]
+name = "Storyblok"
+ats = "greenhouse"
+slug = "storyblok"
+
+[[companies]]
+name = "refurbed"
+ats = "greenhouse"
+slug = "refurbed"
+
+[[companies]]
+name = "Adverity"
+ats = "workable"
+slug = "adverity"
+
+[[companies]]
+name = "PlanRadar"
+ats = "greenhouse"
+slug = "planradar"
+
+[[companies]]
+name = "Prewave"
+ats = "personio"
+slug = "prewave"
+
+[[companies]]
+name = "kununu"
+ats = "greenhouse"
+slug = "kununu"
+
+[[companies]]
+name = "hokify"
+ats = "smartrecruiters"
+slug = "hokifygmbh"
+
+[[companies]]
+name = "Frequentis"
+ats = "smartrecruiters"
+slug = "frequentis"
+
+[[companies]]
+name = "Red Bull"
+ats = "smartrecruiters"
+slug = "redbull"
+
+[[companies]]
+name = "N26"
+ats = "greenhouse"
+slug = "n26"

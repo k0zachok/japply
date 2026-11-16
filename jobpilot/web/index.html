@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JobPilot</title>
+<style>
+  :root { --bg:#f6f5f2; --card:#fff; --ink:#1d1d1f; --mute:#6b6b70; --line:#e6e4df; --acc:#2f5d50; --acc2:#e9f1ee;
+          --warn:#a3501b; --warnbg:#fbeee4; --good:#1f7a4d; --mid:#9a7b12; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif; background:var(--bg); color:var(--ink); }
+  header { display:flex; gap:12px; align-items:center; padding:14px 20px; border-bottom:1px solid var(--line); background:var(--card); position:sticky; top:0; z-index:5; }
+  header h1 { font-size:17px; margin:0 12px 0 0; letter-spacing:-.01em; }
+  header h1 span { color:var(--acc); }
+  button { font:inherit; border:1px solid var(--line); background:var(--card); padding:6px 12px; border-radius:7px; cursor:pointer; }
+  button:hover { border-color:#c9c6bf; }
+  button.primary { background:var(--acc); color:#fff; border-color:var(--acc); }
+  button.primary:disabled { opacity:.6; cursor:wait; }
+  .spacer { flex:1; }
+  .bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:12px 20px; }
+  .tabs button.on, .chip.on { background:var(--acc2); border-color:var(--acc); color:var(--acc); font-weight:600; }
+  .chip { padding:4px 10px; border-radius:20px; font-size:13px; }
+  input[type=search], input[type=text], textarea { font:inherit; padding:6px 10px; border:1px solid var(--line); border-radius:7px; background:#fff; }
+  input[type=search] { width:220px; }
+  main { display:grid; grid-template-columns: minmax(380px, 1fr) minmax(380px, 1.1fr); gap:16px; padding:0 20px 20px; }
+  #list { display:flex; flex-direction:column; gap:6px; }
+  .job { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; display:grid; grid-template-columns:44px 1fr; gap:10px; cursor:pointer; }
+  .job:hover { border-color:#c9c6bf; } .job.sel { border-color:var(--acc); box-shadow:0 0 0 1px var(--acc); }
+  .score { width:40px; height:40px; border-radius:9px; display:grid; place-items:center; font-weight:700; font-size:15px; background:#eee; color:#555; }
+  .s-hi { background:#e3f3ea; color:var(--good); } .s-mid { background:#f8f0d8; color:var(--mid); } .s-lo { background:#f1efeb; color:var(--mute); }
+  .t { font-weight:600; } .meta { color:var(--mute); font-size:12.5px; }
+  .tags { display:flex; flex-wrap:wrap; gap:4px; margin-top:4px; }
+  .tag { font-size:11.5px; padding:1px 7px; border-radius:10px; background:#f0eee9; color:#555; }
+  .tag.where { background:var(--acc2); color:var(--acc); } .tag.flag { background:var(--warnbg); color:var(--warn); }
+  .tag.st { background:#e8eefb; color:#2c4f9e; }
+  #detail { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px; position:sticky; top:120px; max-height:calc(100vh - 140px); overflow:auto; }
+  #detail h2 { margin:0 0 4px; font-size:18px; }
+  .actions { display:flex; flex-wrap:wrap; gap:6px; margin:12px 0; }
+  .ai { background:#f7f9f8; border:1px solid var(--line); border-radius:9px; padding:10px 12px; margin:10px 0; }
+  .desc { white-space:pre-wrap; color:#333; font-size:13.5px; }
+  .files a { display:inline-block; margin:2px 8px 2px 0; }
+  .empty { color:var(--mute); padding:40px; text-align:center; }
+  dialog { border:1px solid var(--line); border-radius:12px; padding:18px; width:min(640px, 92vw); }
+  dialog textarea { width:100%; height:180px; } dialog input { width:100%; margin-bottom:8px; }
+  pre.log { background:#1d1d1f; color:#d8e7df; padding:12px; border-radius:8px; max-height:340px; overflow:auto; font-size:12px; white-space:pre-wrap; }
+  table.src { border-collapse:collapse; width:100%; font-size:13px; } .src td, .src th { border-bottom:1px solid var(--line); padding:5px 6px; text-align:left; }
+  .count { color:var(--mute); font-size:13px; }
+  button.big { padding:9px 16px; font-weight:600; } kbd { font:11px ui-monospace,monospace; opacity:.7; border:1px solid currentColor; border-radius:4px; padding:0 4px; margin-left:4px; }
+  #dry { background:var(--warnbg); color:var(--warn); padding:6px 20px; font-size:13px; display:none; }
+  #dlgQ input { width:100%; }
+  @media (max-width: 900px) { main { grid-template-columns:1fr; } #detail { position:static; max-height:none; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Job<span>Pilot</span></h1>
+  <div class="tabs" id="tabs"></div>
+  <div class="spacer"></div>
+  <button onclick="openAdd()">+ Add job</button>
+  <button onclick="openQuestions()" id="qbtn">Questions</button>
+  <button onclick="openSources()">Sources</button>
+  <button class="primary" id="refresh" onclick="refresh()">↻ Find new jobs</button>
+</header>
+
+<div id="dry">Dry-run mode: forms are filled and screenshotted but <b>not submitted</b>. Set <code>dry_run = false</code> in config.toml (section [apply]) and restart to really apply.</div>
+<div class="bar">
+  <input type="search" id="q" placeholder="Search title, company…" oninput="render()">
+  <span class="count">Where:</span><span id="where"></span>
+  <span class="count">Type:</span><span id="types"></span>
+  <span class="count">Min score</span><input type="range" id="min" min="0" max="90" step="5" value="30" oninput="minv.textContent=this.value;render()"><span id="minv" class="count">30</span>
+  <label class="count"><input type="checkbox" id="nogerman" onchange="render()"> hide "fluent German"</label>
+  <span class="spacer"></span><span class="count" id="status"></span><span class="count" id="count"></span>
+</div>
+
+<main>
+  <div id="list"></div>
+  <aside id="detail"><div class="empty">Pick a job on the left.<br><br>Tip: “Find new jobs” pulls fresh listings from every source.</div></aside>
+</main>
+
+<dialog id="dlgAdd">
+  <h3 style="margin-top:0">Add a job you found yourself</h3>
+  <p class="count">Paste a link (karriere.at, StepStone, willhaben, company sites work directly). For LinkedIn, also paste the job text, because LinkedIn needs a login.</p>
+  <input type="text" id="addUrl" placeholder="https://…">
+  <input type="text" id="addTitle" placeholder="Title (optional)">
+  <input type="text" id="addCompany" placeholder="Company (optional)">
+  <textarea id="addText" placeholder="Job description text (optional)"></textarea>
+  <div class="actions"><button class="primary" onclick="addJob()">Add</button><button onclick="dlgAdd.close()">Cancel</button><span id="addMsg" class="count"></span></div>
+</dialog>
+
+<dialog id="dlgLog"><h3 style="margin-top:0">Finding new jobs…</h3><pre class="log" id="log"></pre><button onclick="dlgLog.close()">Close</button></dialog>
+<dialog id="dlgQ"><h3 style="margin-top:0">Questions from application forms</h3><div id="qs"></div><button onclick="dlgQ.close()">Close</button></dialog>
+<dialog id="dlgSrc"><h3 style="margin-top:0">Sources</h3><div id="src"></div><br><button onclick="dlgSrc.close()">Close</button></dialog>
+
+<script>
+const TABS = [["review","Review"],["manual","Needs you"],["applied","Applied"],["interview","Interview"],["offer","Offer"],["rejected","Rejected"],["queued","Queued"],["new","Inbox"],["saved","Saved"],["skipped","Auto-skipped"],["hidden","Hidden"],["filtered","Filtered out"]];
+const WHERE = [["vienna","Vienna"],["hybrid","Hybrid"],["remote","Remote"]];
+const TYPES = [["full_time","Full-time"],["part_time","Part-time"],["working_student","Werkstudent"],["internship","Internship"],["thesis","Thesis"],["trainee","Trainee"],["freelance","Freelance"]];
+let jobs = [], tab = "review", where = new Set(), types = new Set(), sel = null;
+
+const $ = id => document.getElementById(id);
+const esc = s => (s ?? "").toString().replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const score = j => j.ai_score ?? j.kw_score ?? 0;
+const cls = s => s >= 65 ? "s-hi" : s >= 40 ? "s-mid" : "s-lo";
+const label = (arr, k) => (arr.find(a => a[0] === k) || [k, k])[1];
+function age(iso) { if (!iso) return ""; const d = (Date.now() - new Date(iso)) / 864e5; return d < 1 ? "today" : Math.round(d) + "d ago"; }
+
+function chips(el, arr, set) {
+  $(el).innerHTML = arr.map(([k, v]) => `<button class="chip ${set.has(k) ? "on" : ""}" data-k="${k}">${v}</button>`).join(" ");
+  $(el).querySelectorAll("button").forEach(b => b.onclick = () => { set.has(b.dataset.k) ? set.delete(b.dataset.k) : set.add(b.dataset.k); chips(el, arr, set); render(); });
+}
+function drawTabs() {
+  const n = s => jobs.filter(j => j.status === s).length;
+  $("tabs").innerHTML = TABS.map(([k, v]) => `<button class="${tab === k ? "on" : ""}" onclick="tab='${k}';drawTabs();render()">${v} <span class="count">${n(k)}</span></button>`).join(" ");
+}
+
+async function load() {
+  jobs = await (await fetch("/api/jobs?all=1")).json();
+  drawTabs(); render();
+}
+
+function visible() {
+  const q = $("q").value.toLowerCase(), min = +$("min").value, ng = $("nogerman").checked;
+  return jobs.filter(j => j.status === tab
+    && (!q || (j.title + " " + j.company + " " + j.location).toLowerCase().includes(q))
+    && (tab !== "new" || score(j) >= min)
+    && (!where.size || where.has(j.where_ok))
+    && (!types.size || (j.types || "").split(",").some(t => types.has(t)))
+    && (!ng || !(j.flags || "").includes("fluent German")));
+}
+
+function render() {
+  const v = visible();
+  $("count").textContent = `${v.length} jobs`;
+  $("list").innerHTML = v.length ? v.slice(0, 400).map(j => `
+    <div class="job ${sel === j.id ? "sel" : ""}" onclick="show('${esc(j.id)}')">
+      <div class="score ${cls(score(j))}" title="${j.ai_score != null ? "AI score" : "keyword score"}">${score(j)}${j.ai_score != null ? "" : "<small style='font-size:9px'>kw</small>"}</div>
+      <div><div class="t">${esc(j.title)}</div>
+        <div class="meta">${esc(j.company)} · ${esc(j.location)} · ${age(j.posted_at || j.first_seen)} · ${esc(j.source)}</div>
+        <div class="tags">${j.where_ok ? `<span class="tag where">${label(WHERE, j.where_ok)}</span>` : ""}
+          ${(j.types || "").split(",").filter(Boolean).map(t => `<span class="tag">${label(TYPES, t)}</span>`).join("")}
+          ${(j.flags || "").split(",").filter(f => f && f !== "short description").map(f => `<span class="tag flag">${esc(f)}</span>`).join("")}
+          ${j.app_dir ? `<span class="tag st">files</span>` : ""}</div>
+        ${j.apply_note ? `<div class="meta" style="color:var(--warn)">${esc(j.apply_note)}</div>` : ""}</div>
+    </div>`).join("") : `<div class="empty">Nothing here yet.${tab === "new" ? " Lower the min score or click “Find new jobs”." : ""}</div>`;
+}
+
+async function show(id) {
+  sel = id; render();
+  const j = await (await fetch("/api/job/" + encodeURIComponent(id))).json();
+  const ai = j.ai;
+  $("detail").innerHTML = `
+    <h2>${esc(j.title)}</h2>
+    <div class="meta">${esc(j.company)} · ${esc(j.location)} ${j.salary ? "· " + esc(j.salary) : ""} · ${esc(j.source)} · ${age(j.posted_at || j.first_seen)}</div>
+    ${ai ? `<div class="ai"><b>AI: ${ai.score}/100 — ${esc(ai.verdict)}</b><br>${esc(ai.why)}${ai.gaps ? `<br><span style="color:var(--warn)">Gaps: ${esc(ai.gaps)}</span>` : ""}
+      <div class="meta">German needed: ${esc(ai.german_required)} · level: ${esc(ai.seniority)} · ad language: ${esc(ai.language)}</div></div>`
+      : `<div class="ai meta">Keyword score ${j.kw_score}. Set up an AI model in config.toml for a real fit assessment.</div>`}
+    ${j.apply_note ? `<div class="ai" style="background:var(--warnbg)">${esc(j.apply_note)}</div>` : ""}
+    ${["review","manual","new","saved","skipped"].includes(j.status) ? `<div class="actions">
+      <button class="primary big" onclick="decide('${esc(j.id)}',true)">✓ ${j.status === "manual" ? "Retry auto-apply" : "Apply for me"} <kbd>A</kbd></button>
+      <button class="big" onclick="decide('${esc(j.id)}',false)">✕ Reject <kbd>R</kbd></button>
+      ${j.status === "manual" ? `<button class="big" onclick="setStatus('${esc(j.id)}','applied')">I applied myself</button>` : ""}</div>` : ""}
+    <div class="actions">
+      <a href="${esc(j.url)}" target="_blank" rel="noopener"><button class="primary">Open posting ↗</button></a>
+      <button id="tbtn" onclick="tailorJob('${esc(j.id)}')">✍ Write cover letter + CV</button>
+      ${["saved","applied","interview","offer","rejected","hidden"].map(s => `<button onclick="setStatus('${esc(j.id)}','${s}')" ${j.status === s ? "disabled" : ""}>${label(TABS, s)}</button>`).join("")}
+    </div>
+    <div class="files" id="files">${(j.files || []).map(f => `<a href="${f}" target="_blank">${f.split("/").pop()}</a>`).join("")}</div>
+    <div class="desc">${esc(j.description || "No description in the feed — it is fetched from the job page when you write the letter.")}</div>`;
+}
+
+async function setStatus(id, status) {
+  await fetch("/api/status", {method:"POST", body: JSON.stringify({id, status})});
+  jobs.find(j => j.id === id).status = status; drawTabs(); render(); show(id);
+}
+
+// Review queue: decide, then jump straight to the next job.
+async function decide(id, apply) {
+  const v = visible(), i = v.findIndex(j => j.id === id), next = v[i + 1] || v[i - 1];
+  const j = jobs.find(x => x.id === id);
+  if (apply) { await fetch("/api/apply", {method:"POST", body: JSON.stringify({id})}); j.status = "queued"; j.apply_note = null; watch(); }
+  else { await fetch("/api/status", {method:"POST", body: JSON.stringify({id, status:"hidden"})}); j.status = "hidden"; }
+  drawTabs(); render();
+  if (next) show(next.id); else $("detail").innerHTML = `<div class="empty">All done here.</div>`;
+}
+document.addEventListener("keydown", e => {
+  if (!sel || e.target.matches("input, textarea") || e.metaKey || e.ctrlKey || document.querySelector("dialog[open]")) return;
+  const j = jobs.find(x => x.id === sel); if (!j || !["review","manual","new","saved","skipped"].includes(j.status)) return;
+  if (e.key === "a") decide(sel, true); else if (e.key === "r") decide(sel, false);
+});
+let watching = false;
+async function watch() {          // poll while the background applier runs, then reload results
+  if (watching) return; watching = true;
+  const tick = async () => {
+    const p = await (await fetch("/api/progress")).json();
+    $("status").textContent = p.busy ? "⏳ " + (p.log[p.log.length - 1] || "applying…") : "";
+    if (p.busy) setTimeout(tick, 2000); else { watching = false; const s = sel; await load(); if (s && jobs.find(j => j.id === s)) show(s); }
+  };
+  setTimeout(tick, 1000);
+}
+async function openQuestions() {
+  const qs = await (await fetch("/api/questions")).json();
+  $("qs").innerHTML = qs.length ? qs.map(q => { let o = []; try { o = JSON.parse(q.options || "[]"); } catch (e) {}
+    return `<p><b>${esc(q.question)}</b>${o.length ? `<br><span class="count">Options: ${o.map(esc).join(" · ")}</span>` : ""}<br>
+      <input type="text" value="${esc(q.answer || "")}" placeholder="your answer (reused for every future form)" onchange="saveAnswer('${esc(q.key)}', this.value)"></p>`; }).join("")
+    : `<p class="count">No open questions. When a form asks something the script can't answer from your CV, it shows up here.</p>`;
+  dlgQ.showModal();
+}
+async function saveAnswer(key, answer) { await fetch("/api/answer", {method:"POST", body: JSON.stringify({key, answer})}); countQuestions(); }
+async function countQuestions() {
+  const n = (await (await fetch("/api/questions")).json()).filter(q => !q.answer).length;
+  $("qbtn").textContent = n ? `Questions (${n})` : "Questions";
+}
+
+async function tailorJob(id) {
+  const b = $("tbtn"); b.disabled = true; b.textContent = "Writing… (local AI can take a minute)";
+  const r = await (await fetch("/api/tailor", {method:"POST", body: JSON.stringify({id})})).json();
+  if (r.error) { alert(r.error); b.disabled = false; b.textContent = "✍ Write cover letter + CV"; return; }
+  const j = jobs.find(x => x.id === id); j.app_dir = "1"; if (j.status === "new") j.status = "saved";
+  drawTabs(); render(); show(id);
+}
+
+async function refresh() {
+  $("refresh").disabled = true; $("log").textContent = ""; dlgLog.showModal();
+  const r = await fetch("/api/refresh", {method:"POST", body:"{}"});
+  const tick = async () => {
+    const p = await (await fetch("/api/progress")).json();
+    $("log").textContent = p.log.join("\n"); $("log").scrollTop = 1e9;
+    if (p.busy) setTimeout(tick, 1500); else { $("refresh").disabled = false; load(); }
+  };
+  tick();
+}
+
+function openAdd() { $("addMsg").textContent = ""; dlgAdd.showModal(); }
+async function addJob() {
+  $("addMsg").textContent = "Adding…";
+  const r = await (await fetch("/api/add", {method:"POST", body: JSON.stringify({url: $("addUrl").value, text: $("addText").value, title: $("addTitle").value, company: $("addCompany").value})})).json();
+  if (r.error) { $("addMsg").textContent = "⚠ " + r.error; return; }
+  dlgAdd.close(); ["addUrl","addText","addTitle","addCompany"].forEach(i => $(i).value = "");
+  tab = "saved"; await load(); show(r.id);
+}
+
+async function openSources() {
+  const d = await (await fetch("/api/sources")).json();
+  const c = Object.fromEntries(d.counts.map(x => [x.source, x]));
+  $("src").innerHTML = `<table class="src"><tr><th>Source</th><th>Last run</th><th>Fetched</th><th>New</th><th>In DB / matching</th><th></th></tr>` +
+    d.runs.map(r => `<tr><td>${esc(r.source)}</td><td>${age(r.started)}</td><td>${r.fetched}</td><td>${r.new}</td>
+      <td>${Object.entries(c).filter(([k]) => k === r.source || k.startsWith(r.source)).map(([k, x]) => `${x.n} / ${x.kept}`).join(", ")}</td>
+      <td style="color:var(--warn)">${esc(r.error || "")}</td></tr>`).join("") + `</table>`;
+  dlgSrc.showModal();
+}
+
+chips("where", WHERE, where); chips("types", TYPES, types); load(); countQuestions();
+fetch("/api/progress").then(r => r.json()).then(p => { if (p.dry_run) $("dry").style.display = "block"; if (p.busy) watch(); });
+</script>
+</body>
+</html>

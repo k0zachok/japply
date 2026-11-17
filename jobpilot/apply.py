@@ -22,7 +22,8 @@ from .llm import LLM
 from .tailor import app_folder, detect_lang, tailor
 
 APPLY_WORDS = re.compile(r"apply|bewerb|application|postuler|solliciteer", re.I)
-BOARD_HOSTS = ("jobicy.com", "himalayas.app", "remoteok.com", "remotive.com", "weworkremotely.com", "arbeitnow.")
+BOARD_HOSTS = ("jobicy.com", "himalayas.app", "remoteok.com", "remotive.com", "weworkremotely.com", "arbeitnow.",
+               "adzuna.")
 APPLY_START = re.compile(r"^\W*(apply|jetzt bewerben|bewerben|zur bewerbung|online bewerben|i'?m interested|"
                          r"ich bin interessiert|schnellbewerbung|einfach bewerben|weiter zur bewerbung|"
                          r"start (your )?application|submit (an? )?application|bewerbungsformular|zum bewerbungsformular|"
@@ -365,7 +366,10 @@ def _form_frame(page, relaxed: bool = False):
         except Exception:
             continue
         has_mail = any(re.search(r"e-?mail", f["label"] + f["name"], re.I) or f["type"] == "email" for f in fields)
-        ok = (has_mail and len(fields) >= 3) or (relaxed and fields and (
+        # a real application asks who you are or for a CV — a newsletter / job-alert box (e-mail only) does not
+        ident = any(f["type"] == "file" or re.search(r"name|vorname|nachname|lebenslauf|resume|\bcv\b", f["label"] + " " + f["name"], re.I)
+                    for f in fields)
+        ok = (has_mail and ident and len(fields) >= 3) or (relaxed and fields and (
             any(f["type"] == "file" for f in fields) or len(fields) >= 2))
         if ok and (best is None or len(fields) > len(best[1])):
             best = (fr, fields)
@@ -417,6 +421,9 @@ def _open_form(ctx, page, url: str, skip_hosts: list[str], mine: list[str] = ())
         if len(ctx.pages) > before:
             page = ctx.pages[-1]
             page.wait_for_load_state("domcontentloaded", timeout=30000)
+    if "adzuna." in urllib.parse.urlparse(page.url).netloc.lower():
+        raise NeedsYou("Adzuna only lists this job and its apply link blocks automated browsers — open the posting "
+                       "and apply on the original site (documents are ready)")
     if any(h in urllib.parse.urlparse(page.url).netloc.lower() for h in BOARD_HOSTS):
         raise NeedsYou("this job board only lets you apply with an account on it — open the posting and apply there")
     host = urllib.parse.urlparse(page.url).netloc.lower()
@@ -854,8 +861,38 @@ def _send_email(cfg, job, to: str, letter: str, attachments: list[Path], folder:
 
 
 # ------------------------------------------------------------------ main loop
+def _on_karriere(job: dict) -> str | None:
+    """URL of the same job on karriere.at (same company, near-identical title), or None."""
+    from .core import http
+    words = lambda t: set(re.findall(r"[a-zäöüß0-9+#]{3,}", re.sub(r"\([^)]*\)", " ", (t or "").lower())))
+    title, comp = words(job.get("title")), words(job.get("company")) - {"gmbh", "group", "gruppe", "austria", "österreich"}
+    if not title or not comp:
+        return None
+    slug = lambda t, n: "-".join(list(dict.fromkeys(re.findall(r"[a-zäöüß0-9]{3,}", re.sub(r"\([^)]*\)", " ", t.lower()))))[:n])
+    items = []
+    for q in (slug(job.get("company") or "", 3), slug(job["title"], 3)):      # the company's jobs, then by title
+        try:
+            raw = http(f"https://www.karriere.at/jobs/{urllib.parse.quote(q)}/wien?page=1",
+                       headers={"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"})
+            items += json.loads(raw)["data"]["jobsSearchList"]["activeItems"]["items"]
+        except Exception:
+            pass
+    for it in items:
+        ji = it.get("jobsItem") or {}
+        t, c = words(ji.get("title")), words((ji.get("company") or {}).get("name"))
+        if c & comp and len(t & title) >= max(2, int(0.7 * len(title))):
+            return ji.get("link")
+    return None
+
+
 def _target_url(job: dict) -> str:
     u = job["url"]
+    if job["source"] == "adzuna":
+        # Adzuna only lists jobs and its apply link refuses automated browsers. The same posting is usually on
+        # karriere.at, where applying works — look it up there by company and title.
+        k = _on_karriere(job)
+        if k:
+            return _target_url({"source": "karriere", "url": k, "id": "karriere:" + k.rsplit("/", 1)[-1]})
     if job["source"] == "dvinci":
         return re.sub(r"(/jobs/\d+)(/.*)?$", r"\1/form", u)     # skips the "form or CV upload?" choice page
     if job["source"] == "karriere":

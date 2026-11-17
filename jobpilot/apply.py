@@ -32,7 +32,7 @@ SUBMIT_BTN = re.compile(r"submit|absenden|abschicken|send application|bewerbung 
                         r"bewerben|senden|send)\b", re.I)
 BLOCKED = re.compile(r"request blocked|performing security verification|you have been blocked|access denied|verify (that )?you are (a )?human|"
                      r"unusual traffic|are you a robot", re.I)
-SUCCESS = re.compile(r"thank you|thanks for|danke|vielen dank|application (has been |was )?(received|submitted|sent)|"
+SUCCESS = re.compile(r"thank you|thanks for|danke|vielen dank|(you'?ve|you have) (successfully )?(submitted|applied)|submitted your application|application (has been |was )?(received|submitted|sent)|"
                      r"successfully (submitted|applied|sent)|bewerbung (ist |wurde )?(eingegangen|erhalten|gesendet|"
                      r"übermittelt|abgeschickt)|erfolgreich", re.I)
 CAPTCHA = ("iframe[src*='hcaptcha.com']", "iframe[src*='challenges.cloudflare.com']",
@@ -349,7 +349,16 @@ def _open_form(ctx, page, url: str, skip_hosts: list[str], mine: list[str] = ())
             page.wait_for_load_state("domcontentloaded", timeout=30000)
     if any(h in urllib.parse.urlparse(page.url).netloc.lower() for h in BOARD_HOSTS):
         raise NeedsYou("this job board only lets you apply with an account on it — open the posting and apply there")
-    raise NeedsYou("couldn't find an application form on the page")
+    host = urllib.parse.urlparse(page.url).netloc.lower()
+    try:
+        head = (page.title() + " " + page.url).lower()
+        pw_box = page.locator("input[type=password]:visible").count()
+    except Exception:
+        head, pw_box = "", 0
+    if pw_box or re.search(r"login|log-in|signin|sign-in|anmeld|authenti|register|registrier", head):
+        raise NeedsYou(f"{host} wants you to create an account / sign in before applying — sign in once with:  "
+                       f"python -m jobpilot login {host.removeprefix('www.')}")
+    raise NeedsYou(f"couldn't find an application form on {host} — apply by hand (documents are ready)")
 
 
 def _pick_option(options: list[str], answer: str) -> str | None:
@@ -577,6 +586,8 @@ def _set(fr, f, el, ans: str):
         el.fill(digits)
     elif f["type"] == "tel" and f.get("cc") and ans.replace(" ", "").startswith(f["cc"]):
         el.fill(ans.replace(" ", "")[len(f["cc"]):])           # the country code has its own box
+    elif f["type"] == "tel" and ans.strip().startswith("+"):
+        el.fill(re.sub(r"[^\d+]", "", ans))                    # strict validators reject spaces: +43665…
     else:
         el.fill(ans)
 

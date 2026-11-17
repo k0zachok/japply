@@ -56,6 +56,13 @@ where = "Wien"
 distance_km = 30
 pages_per_keyword = 2        # 50 jobs per page; free tier has a daily call limit
 
+# Austria's biggest job board; public search pages, no key.
+[sources.karriere]
+enabled = true
+where = "wien"
+pages_per_keyword = 2
+max_new_per_run = 150        # job pages read per run (be gentle with the site)
+
 # DACH board fed straight from company ATS systems. No key.
 [sources.arbeitnow]
 enabled = true

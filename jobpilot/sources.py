@@ -50,6 +50,40 @@ def adzuna(cfg) -> Iterator[Job]:
             time.sleep(1.2)
 
 
+@source("karriere")
+def karriere(cfg) -> Iterator[Job]:
+    """karriere.at — Austria's biggest job board. Reads its public search pages, then each new job's page."""
+    import urllib.parse
+    from .core import connect
+    from .importer import fetch_job
+    s = cfg["sources"]["karriere"]
+    where = urllib.parse.quote(s.get("where", "wien"))
+    known = {r[0] for r in connect(cfg).execute("SELECT id FROM jobs WHERE source='karriere'")}
+    seen, budget = set(), int(s.get("max_new_per_run", 150))
+    for kw in _kw(cfg):
+        for page in range(1, int(s.get("pages_per_keyword", 2)) + 1):
+            html = http(f"https://www.karriere.at/jobs/{urllib.parse.quote(kw.replace(' ', '-'))}/{where}"
+                        + (f"?page={page}" if page > 1 else ""), headers={"Accept": "text/html"})
+            ids = list(dict.fromkeys(re.findall(r'href="https://www\.karriere\.at/jobs/(\d{5,})"', html)))
+            for jid in ids:
+                if jid in seen or f"karriere:{jid}" in known:
+                    continue
+                seen.add(jid)
+                if budget <= 0:
+                    return
+                budget -= 1
+                try:
+                    j = fetch_job(f"https://www.karriere.at/jobs/{jid}")
+                except Exception:
+                    continue
+                j.source, j.ext_id = "karriere", jid
+                yield j
+                time.sleep(0.4)
+            if len(ids) < 10:
+                break
+            time.sleep(1.0)
+
+
 @source("arbeitnow")
 def arbeitnow(cfg) -> Iterator[Job]:
     """Free DACH job board API built from company ATS systems (Greenhouse, Personio, …)."""

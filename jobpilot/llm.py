@@ -87,7 +87,7 @@ class LLM:
     def _call(self, model: str, prompt: str, json_mode: bool, max_tokens: int) -> str:
         if not self.key and "localhost" not in self.base and "127.0.0.1" not in self.base and "11434" not in self.base \
                 and self.base:
-            raise HttpError(503, "llm", "no API key in this shell — start JobPilot from a terminal where "
+            raise HttpError(503, "llm", "no API key in this shell — start JobMan from a terminal where "
                                         "JOBPILOT_API_KEY is set (open a new terminal window, or run start.sh)")
         msgs = [{"role": "user", "content": prompt}]
         if self.provider == "ollama":

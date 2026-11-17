@@ -1,4 +1,4 @@
-# JobPilot configuration. Edit freely; everything is local.
+# JobMan configuration. Edit freely; everything is local.
 
 [profile]
 name = "Your Name"
@@ -96,7 +96,7 @@ enabled = true
 feeds = []
 
 # Job-alert e-mails from karriere.at, LinkedIn, StepStone, AMS "alle jobs", willhaben, jobs.at …
-# Set alerts up on those sites (Wien + your keywords), then JobPilot reads them from your inbox.
+# Set alerts up on those sites (Wien + your keywords), then JobMan reads them from your inbox.
 # Gmail: enable 2-step verification, create an App Password, paste it here.
 [sources.email_alerts]
 enabled = false
@@ -123,7 +123,7 @@ since_days = 14
 provider = "openai"          # Gemini through its OpenAI-compatible API
 model = "gemini-3.5-flash-lite"
 # Rotation, strongest first. Each Gemini model has its own free daily quota; when one runs out (or is overloaded)
-# JobPilot moves to the next. Letters, CVs and form answers start from the top, bulk scoring from the bottom.
+# JobMan moves to the next. Letters, CVs and form answers start from the top, bulk scoring from the bottom.
 models = [
   "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3-flash-preview",
   "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.1-flash-lite-preview", "gemini-flash-lite-latest",
@@ -181,7 +181,7 @@ smtp_port = 587
 user = "you@example.com"
 app_password = ""
 
-# The mailbox you apply with (ideally a separate address used only for job applications). JobPilot reads it
+# The mailbox you apply with (ideally a separate address used only for job applications). JobMan reads it
 # read-only to pick up verification codes and confirmation links that sites e-mail during an application.
 # Gmail: turn on 2-step verification, create an App Password, and put it in the JOBPILOT_MAILBOX_PASSWORD
 # environment variable (or app_password below).

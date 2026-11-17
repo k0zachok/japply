@@ -167,21 +167,8 @@ def tailor(cfg: dict, job: dict, llm, log=print, strict: bool = False) -> Path:
 
     (folder / "cover_letter.txt").write_text(letter, encoding="utf-8")
     (folder / "cv_tailored.md").write_text(cv_md, encoding="utf-8")
-    (folder / "job.md").write_text(
-        f"# {job['title']}\n**{job.get('company', '')}** — {job.get('location', '')}\n\n{job.get('url', '')}\n\n"
-        f"{job.get('description', '')}", encoding="utf-8")
-    try:
-        _docx_letter(letter, name, cfg, folder / "cover_letter.docx")
-        _docx_from_md(cv_md, folder / "cv_tailored.docx")
-    except ImportError:
-        log("  (pip install python-docx to also get .docx files)")
-    (folder / "CHECK_BEFORE_SENDING.txt").write_text(
-        "Before you send:\n"
-        "1. Read the letter out loud once. Fix anything that doesn't sound like you.\n"
-        "2. Check that every claim is true (the AI was told not to invent, but verify).\n"
-        "3. Add the contact person's name if the ad has one.\n"
-        "4. Attach your designed CV PDF if you prefer it over cv_tailored.docx.\n"
-        f"5. Apply here: {job.get('url', '')}\n", encoding="utf-8")
+    # Only the two small text files are written here. Word and PDF versions are made when you click a download
+    # button in the dashboard (or, for PDFs, at the moment an application is actually filled in).
     return folder
 
 
@@ -209,6 +196,18 @@ def _template_letter(cfg, job, lang, avail) -> str:
 
 def _slug(s: str) -> str:
     return re.sub(r"[^A-Za-z0-9]+", "-", s).strip("-")[:50] or "x"
+
+
+def docx_bytes(cfg: dict, folder: Path, doc: str) -> bytes:
+    """The letter or CV of this job as a Word file, built in memory on request."""
+    import io, tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "doc.docx"
+        if doc == "letter":
+            _docx_letter((folder / "cover_letter.txt").read_text(encoding="utf-8"), cfg["profile"]["name"], cfg, out)
+        else:
+            _docx_from_md((folder / "cv_tailored.md").read_text(encoding="utf-8"), out)
+        return out.read_bytes()
 
 
 def _docx_letter(text: str, name: str, cfg: dict, out: Path):

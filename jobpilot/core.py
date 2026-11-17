@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-UA = "Mozilla/5.0 (X11; Linux x86_64) JobPilot/1.0 (personal job search)"
+UA = "Mozilla/5.0 (X11; Linux x86_64) JobMan/1.0 (personal job search)"
 
 
 # ---------------------------------------------------------------- config

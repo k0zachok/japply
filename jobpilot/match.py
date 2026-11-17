@@ -129,6 +129,8 @@ def classify_all(cfg: dict, con, only_new: bool = True) -> dict:
         stats["hidden" if status == "filtered" else "kept"] += 1
         con.execute("UPDATE jobs SET types=?, where_ok=?, flags=?, kw_score=?, status=? WHERE id=?",
                     (",".join(types), w or "", ",".join(fl), kw, status, r["id"]))
+        if status == "filtered" and w is None:       # wrong place: the text will never be needed (keeps the DB small)
+            con.execute("UPDATE jobs SET description='' WHERE id=?", (r["id"],))
     con.commit()
     return stats
 

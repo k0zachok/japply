@@ -59,16 +59,17 @@ def make_handler(cfg):
             try:
                 if u.path == "/":
                     return self._send(200, (WEB / "index.html").read_bytes(), "text/html")
-                if u.path == "/api/jobs":
+                if u.path == "/api/jobs":      # ?only=filtered loads the (large) filtered-out list, on demand
                     con = connect(cfg)
-                    show_all = q.get("all", ["0"])[0] == "1"
+                    only = q.get("only", [""])[0] == "filtered"
                     rows = con.execute(
-                        "SELECT id, source, title, company, location, url, posted_at, first_seen, types, where_ok, "
-                        "flags, kw_score, ai_score, ai_json, status, app_dir, salary, apply_note, applied_at, substr(description,1,400) AS snippet "
-                        "FROM jobs " + ("" if show_all else "WHERE status != 'filtered' ") +
-                        "ORDER BY COALESCE(ai_score, kw_score) DESC, first_seen DESC LIMIT 3000").fetchall()
+                        "SELECT id, source, title, company, location, posted_at, first_seen, types, where_ok, "
+                        "flags, kw_score, ai_score, status, app_dir, apply_note "
+                        "FROM jobs WHERE status " + ("= 'filtered' " if only else "!= 'filtered' ") +
+                        "ORDER BY COALESCE(ai_score, kw_score) DESC, first_seen DESC LIMIT " + ("500" if only else "3000")).fetchall()
+                    n = con.execute("SELECT COUNT(*) FROM jobs WHERE status='filtered'").fetchone()[0]
                     con.close()
-                    return self._send(200, [dict(r) for r in rows])
+                    return self._send(200, {"jobs": [dict(r) for r in rows], "filtered": n})
                 if u.path.startswith("/api/job/"):
                     con = connect(cfg)
                     d = pipeline.job_row(con, urllib.parse.unquote(u.path[9:]))
@@ -112,6 +113,11 @@ def make_handler(cfg):
                     folder = Path(job.get("app_dir") or "")
                     if not job.get("app_dir") or not (folder / "cover_letter.txt").exists():
                         return self._send(409, {"error": "Write the cover letter + CV for this job first."})
+                    if q.get("fmt", ["pdf"])[0] == "docx":
+                        from .tailor import docx_bytes
+                        return self._send(200, docx_bytes(cfg, folder, doc),
+                                          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                          filename=_pdf_name(cfg, job, doc)[:-4] + ".docx")
                     with _pdf_lock:
                         cv_pdf, letter_pdf = _pdfs(cfg, job, folder)
                     f = letter_pdf if doc == "letter" else cv_pdf
@@ -253,7 +259,7 @@ def serve(cfg, open_browser=True):
     port = int(cfg["app"].get("port", 8765))
     srv = ThreadingHTTPServer(("127.0.0.1", port), make_handler(cfg))
     url = f"http://127.0.0.1:{port}"
-    print(f"JobPilot dashboard: {url}   (Ctrl+C to stop)")
+    print(f"JobMan dashboard: {url}   (Ctrl+C to stop)")
     if open_browser:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()
     try:

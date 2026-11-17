@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>JobPilot</title>
+<title>JobMan</title>
 <style>
   :root { --bg:#f6f5f2; --card:#fff; --ink:#1d1d1f; --mute:#6b6b70; --line:#e6e4df; --acc:#2f5d50; --acc2:#e9f1ee;
           --warn:#a3501b; --warnbg:#fbeee4; --good:#1f7a4d; --mid:#9a7b12; }
@@ -68,7 +68,7 @@
 </head>
 <body>
 <header>
-  <h1>Job<span>Pilot</span></h1>
+  <h1>Job<span>Man</span></h1>
   <div class="tabs" id="tabs"></div>
   <div class="spacer"></div>
   <button onclick="openAdd()">+ Add job</button>
@@ -123,13 +123,21 @@ function chips(el, arr, set) {
   $(el).innerHTML = arr.map(([k, v]) => `<button class="chip ${set.has(k) ? "on" : ""}" data-k="${k}">${v}</button>`).join(" ");
   $(el).querySelectorAll("button").forEach(b => b.onclick = () => { set.has(b.dataset.k) ? set.delete(b.dataset.k) : set.add(b.dataset.k); chips(el, arr, set); render(); });
 }
+let filteredCount = 0, filteredLoaded = false;
+async function loadFiltered() {            // the filtered-out list is big and rarely needed: fetched only when opened
+  if (filteredLoaded) return; filteredLoaded = true;
+  jobs = jobs.filter(j => j.status !== "filtered").concat((await (await fetch("/api/jobs?only=filtered")).json()).jobs);
+  render();
+}
 function drawTabs() {
-  const n = s => jobs.filter(j => j.status === s).length;
-  $("tabs").innerHTML = TABS.map(([k, v]) => `<button class="${tab === k ? "on" : ""}" onclick="tab='${k}';drawTabs();render()">${v} <span class="count">${n(k)}</span></button>`).join(" ");
+  const n = s => s === "filtered" ? filteredCount : jobs.filter(j => j.status === s).length;
+  $("tabs").innerHTML = TABS.map(([k, v]) => `<button class="${tab === k ? "on" : ""}" onclick="tab='${k}';drawTabs();render();if(tab==='filtered')loadFiltered()">${v} <span class="count">${n(k)}</span></button>`).join(" ");
 }
 
 async function load() {
-  jobs = await (await fetch("/api/jobs?all=1")).json();
+  const d = await (await fetch("/api/jobs")).json();
+  jobs = d.jobs; filteredCount = d.filtered; filteredLoaded = false;
+  if (tab === "filtered") await loadFiltered();
   drawTabs(); render();
 }
 
@@ -166,16 +174,16 @@ function list(a) { return Array.isArray(a) && a.length ? `<ul>${a.map(x => `<li>
 function showAll() { const m = document.querySelector("input[type=range]"); m.value = 0; minv.textContent = "0";
   document.querySelector("input[type=search]").value = ""; where.clear(); types.clear();
   chips("where", WHERE, where); chips("types", TYPES, types); render(); }
-const DOCS = [["Cover_Letter.pdf", "Cover letter (PDF)"], ["_CV.pdf", "CV (PDF)"], ["cover_letter.docx", "Cover letter (Word)"],
-              ["cv_tailored.docx", "CV (Word)"], ["form_submitted.png", "Screenshot: submitted form"],
-              ["form_problem.png", "Screenshot: where it stopped"], ["form_filled.png", "Screenshot: filled form"]];
+const DOCS = [["form_submitted", "Screenshot: submitted form"], ["form_problem", "Screenshot: where it stopped"],
+              ["form_filled", "Screenshot: filled form"]];
 function docLinks(files, id) {
-  const has = files.some(f => f.endsWith("cover_letter.txt"));
-  const dl = has && id ? `<a href="/api/pdf?id=${encodeURIComponent(id)}&doc=cv" download><button class="primary">⬇ CV (PDF)</button></a>
-    <a href="/api/pdf?id=${encodeURIComponent(id)}&doc=letter" download><button class="primary">⬇ Cover letter (PDF)</button></a> ` : "";
-  const main = dl + DOCS.filter(([end]) => !(has && end.endsWith(".pdf"))).map(([end, name]) => { const f = files.find(x => x.endsWith(end)); return f ? `<a href="${f}" target="_blank"><button>${name}</button></a>` : ""; }).join(" ");
-  const rest = files.filter(f => !DOCS.some(([end]) => f.endsWith(end)) && !f.endsWith(".html"));
-  return main + (rest.length ? `<div class="meta" style="margin-top:6px">Other files: ${rest.map(f => `<a href="${f}" target="_blank">${f.split("/").pop()}</a>`).join("")}</div>` : "");
+  const has = files.some(f => f.endsWith("cover_letter.txt")), u = (doc, fmt) => `/api/pdf?id=${encodeURIComponent(id)}&doc=${doc}&fmt=${fmt}`;
+  const dl = has && id ? `<a href="${u("cv", "pdf")}" download><button class="primary">⬇ CV (PDF)</button></a>
+    <a href="${u("letter", "pdf")}" download><button class="primary">⬇ Cover letter (PDF)</button></a>
+    <a href="${u("cv", "docx")}" download><button>CV (Word)</button></a>
+    <a href="${u("letter", "docx")}" download><button>Cover letter (Word)</button></a> ` : "";
+  const shots = DOCS.map(([stem, name]) => { const f = files.find(x => /\.(png|jpg)$/.test(x) && x.split("/").pop().startsWith(stem)); return f ? `<a href="${f}" target="_blank"><button>${name}</button></a>` : ""; }).join(" ");
+  return dl + shots;
 }
 async function showLetter(files, fresh) {
   const f = (files || []).find(x => x.endsWith("cover_letter.txt")); if (!f || !$("letter")) return;

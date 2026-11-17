@@ -1,4 +1,4 @@
-"""JobPilot command line.
+"""JobMan command line.
 
   python -m jobpilot run                 fetch new jobs from all sources and score them
   python -m jobpilot serve               open the dashboard (also has a "Find new jobs" button)

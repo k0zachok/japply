@@ -203,12 +203,13 @@ def _post_json(url: str, body: dict) -> dict:
     import json as _j, urllib.request
     req = urllib.request.Request(url, data=_j.dumps(body).encode(), method="POST",
                                  headers={"Content-Type": "application/json", "Accept": "application/json",
-                                          "User-Agent": "Mozilla/5.0 (JobPilot personal job search)"})
+                                          "User-Agent": "Mozilla/5.0 (JobMan personal job search)"})
     with urllib.request.urlopen(req, timeout=30) as r:
         return _j.loads(r.read().decode("utf-8", "replace"))
 
 
-def ats_jobs(ats: str, slug: str, company: str = "") -> list[Job]:
+def ats_jobs(ats: str, slug: str, company: str = "", known: frozenset = frozenset()) -> list[Job]:
+    """`known`: job ids already in the database — their detail pages are not fetched again."""
     """Public career-page APIs. Returns [] if the board doesn't exist."""
     name = company or slug
     out: list[Job] = []
@@ -258,7 +259,7 @@ def ats_jobs(ats: str, slug: str, company: str = "") -> list[Job]:
                                to_iso(r.get("releasedDate")), bool(loc.get("remote")),
                                (r.get("typeOfEmployment") or {}).get("label", ""),
                                extra={"detail": r.get("ref", "")}))
-                if country:                                   # small filtered set: fetch the job text right away
+                if country and d.get("totalFound", 0) <= 60 and out[-1].id not in known:   # new job: fetch its text now
                     try:
                         secs = ((get_json(f"https://api.smartrecruiters.com/v1/companies/{slug}/postings/{r['id']}")
                                  .get("jobAd") or {}).get("sections") or {})
@@ -309,6 +310,10 @@ def ats_jobs(ats: str, slug: str, company: str = "") -> list[Job]:
                 if not path:
                     continue
                 desc, posted = "", None
+                if f"workday:{tenant}-{path.rsplit('_', 1)[-1]}" in known:      # already stored with its text
+                    out.append(Job("workday", f"{tenant}-{path.rsplit('_', 1)[-1]}", r.get("title", ""), name,
+                                   r.get("locationsText", ""), f"https://{host}.myworkdayjobs.com/{site}{path}"))
+                    continue
                 try:
                     info = (get_json(api + path).get("jobPostingInfo") or {})
                     desc, posted = strip_html(info.get("jobDescription")), to_iso(info.get("startDate"))
@@ -345,17 +350,30 @@ def ats_jobs(ats: str, slug: str, company: str = "") -> list[Job]:
 
 @source("companies")
 def companies(cfg) -> Iterator[Job]:
+    """All configured company boards, fetched a few at a time (they are different servers)."""
+    from concurrent.futures import ThreadPoolExecutor
+    boards = [c for c in cfg.get("companies", []) if c.get("slug")]
     errors = []
-    for c in cfg.get("companies", []):
-        if not c.get("slug"):
-            continue
+    try:
+        from .core import connect
+        con = connect(cfg)
+        known = frozenset(r[0] for r in con.execute("SELECT id FROM jobs WHERE source IN ('workday', 'smartrecruiters')"))
+        con.close()
+    except Exception:
+        known = frozenset()
+
+    def one(c):
         try:
-            yield from ats_jobs(c["ats"], c["slug"], c.get("name", ""))
-        except Exception as e:  # one broken board must not stop the rest
+            return ats_jobs(c["ats"], c["slug"], c.get("name", ""), known)
+        except Exception as e:      # one broken board must not stop the rest
             errors.append(f"{c.get('name')}: {e}")
-        time.sleep(0.5)
+            return []
+
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        for jobs in ex.map(one, boards):
+            yield from jobs
     if errors:
-        raise RuntimeError("; ".join(errors))
+        raise RuntimeError("; ".join(errors)[:280])
 
 
 def slug_candidates(name: str) -> list[str]:

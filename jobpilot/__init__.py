@@ -1,2 +1,2 @@
-"""JobPilot — local job search assistant."""
+"""JobMan — local job search assistant."""
 __version__ = "1.0"

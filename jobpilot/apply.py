@@ -701,7 +701,7 @@ def _verify_by_mail(cfg, llm, page, fr, since: float, log) -> bool:
     log(f"    waiting for the verification e-mail from {host}…")
     got = mailbox.wait_for_verification(cfg, since, host.removeprefix("www."), llm=llm)
     if not got:
-        raise NeedsYou("the site sent a verification e-mail but JobPilot couldn't find it — finish it yourself")
+        raise NeedsYou("the site sent a verification e-mail but JobMan couldn't find it — finish it yourself")
     if got.get("link"):
         page.goto(got["link"], wait_until="domcontentloaded", timeout=45000)
         return True
@@ -775,7 +775,7 @@ def _submit(cfg, llm, page, fr, log) -> str:
         raise NeedsYou("the form has a “verify you are human” check (CAPTCHA) — finish it with:  python -m jobpilot finish")
     try:
         if btn.is_disabled():
-            raise NeedsYou("the submit button stays disabled — a human check or a missing required field (see form_problem.png)")
+            raise NeedsYou("the submit button stays disabled — a human check or a missing required field (see form_problem.jpg)")
     except NeedsYou:
         raise
     except Exception:
@@ -797,7 +797,7 @@ def _submit(cfg, llm, page, fr, log) -> str:
     bad = sum(f.locator("[aria-invalid=true]:visible, .has-error:visible, .is-invalid:visible").count() for f in page.frames)
     errs = [m.group(0) for t in _texts(page) for m in FORM_ERROR.finditer(t)]
     if bad or (errs and not had_error):
-        raise NeedsYou(f"the form rejected the submission ({bad or len(errs)} field(s) missing or invalid — see form_problem.png)")
+        raise NeedsYou(f"the form rejected the submission ({bad or len(errs)} field(s) missing or invalid — see form_problem.jpg)")
     raise NeedsYou("submitted, but no confirmation appeared — check the screenshot / your e-mail")
 
 
@@ -981,7 +981,7 @@ def login(cfg: dict, url: str, log=print) -> None:
         log(f"✗ Not signed in to {host}: the site still shows its login page. Run the command again and close "
             f"the window only after you see your account page.")
     else:
-        log(f"Saved{' and verified' if ok else ''}. JobPilot will now apply on: {', '.join(sorted(hosts))}")
+        log(f"Saved{' and verified' if ok else ''}. JobMan will now apply on: {', '.join(sorted(hosts))}")
     (profile_dir(cfg) / "jobpilot_logins.json").write_text(json.dumps(sorted(hosts)))
     try:                                   # sites you just signed in to are worth trying again
         from .core import connect
@@ -1030,16 +1030,16 @@ def apply_one(cfg, con, llm, job: dict, ctx, pdf_browser, log=print, hand: bool 
             n += _fill(cfg, con, llm, job, fr, fields, cv_pdf, letter_pdf, letter, log)
             page.wait_for_timeout(800)
             steps += 1
-            page.screenshot(path=str(folder / ("form_filled.png" if steps == 1 else f"form_filled_{steps}.png")), full_page=True)
+            page.screenshot(path=str(folder / ("form_filled.jpg" if steps == 1 else f"form_filled_{steps}.jpg")), full_page=True, type="jpeg", quality=55)
             nxt = None if _button(page, SUBMIT_BTN) else _button(page, NEXT_BTN)
             if nxt is None or steps >= 8:
                 break
             try:
                 nxt.click(timeout=8000)
             except Exception:
-                page.screenshot(path=str(folder / "form_problem.png"), full_page=True)
+                page.screenshot(path=str(folder / "form_problem.jpg"), full_page=True, type="jpeg", quality=55)
                 raise NeedsYou(f"step {steps} of the form won't continue — a required field is missing or invalid "
-                               f"(see form_problem.png)")
+                               f"(see form_problem.jpg)")
             page.wait_for_timeout(3000)
             bad = sum(f.locator("[aria-invalid=true]:visible").count() for f in page.frames)
             if bad:
@@ -1048,19 +1048,19 @@ def apply_one(cfg, con, llm, job: dict, ctx, pdf_browser, log=print, hand: bool 
             fr, fields = found if found else (fr, [])
         if dry:
             return "manual", (f"dry run: filled {n} fields" + (f" over {steps} steps" if steps > 1 else "") +
-                              ", not submitted (see form_filled.png; set dry_run = false to apply)")
+                              ", not submitted (see form_filled.jpg; set dry_run = false to apply)")
         if hand:
             _wait_user(page, log)
-            page.screenshot(path=str(folder / "form_submitted.png"), full_page=True)
+            page.screenshot(path=str(folder / "form_submitted.jpg"), full_page=True, type="jpeg", quality=55)
             return "applied", f"filled automatically ({n} fields), submitted by you"
         job["_host"] = urllib.parse.urlparse(page.url).netloc.lower()
         _submit(cfg, llm, page, fr, log)
-        page.screenshot(path=str(folder / "form_submitted.png"), full_page=True)
+        page.screenshot(path=str(folder / "form_submitted.jpg"), full_page=True, type="jpeg", quality=55)
         return "applied", f"applied automatically ({n} fields)"
     except NeedsYou:
         try:
             job["_host"] = urllib.parse.urlparse(page.url).netloc.lower()
-            page.screenshot(path=str(folder / "form_problem.png"), full_page=True)
+            page.screenshot(path=str(folder / "form_problem.jpg"), full_page=True, type="jpeg", quality=55)
             (folder / "form_problem.html").write_text(page.content(), encoding="utf-8")   # for debugging the form
         except Exception:
             pass

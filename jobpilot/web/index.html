@@ -169,8 +169,11 @@ function showAll() { const m = document.querySelector("input[type=range]"); m.va
 const DOCS = [["Cover_Letter.pdf", "Cover letter (PDF)"], ["_CV.pdf", "CV (PDF)"], ["cover_letter.docx", "Cover letter (Word)"],
               ["cv_tailored.docx", "CV (Word)"], ["form_submitted.png", "Screenshot: submitted form"],
               ["form_problem.png", "Screenshot: where it stopped"], ["form_filled.png", "Screenshot: filled form"]];
-function docLinks(files) {
-  const main = DOCS.map(([end, name]) => { const f = files.find(x => x.endsWith(end)); return f ? `<a href="${f}" target="_blank"><button>${name}</button></a>` : ""; }).join(" ");
+function docLinks(files, id) {
+  const has = files.some(f => f.endsWith("cover_letter.txt"));
+  const dl = has && id ? `<a href="/api/pdf?id=${encodeURIComponent(id)}&doc=cv" download><button class="primary">⬇ CV (PDF)</button></a>
+    <a href="/api/pdf?id=${encodeURIComponent(id)}&doc=letter" download><button class="primary">⬇ Cover letter (PDF)</button></a> ` : "";
+  const main = dl + DOCS.filter(([end]) => !(has && end.endsWith(".pdf"))).map(([end, name]) => { const f = files.find(x => x.endsWith(end)); return f ? `<a href="${f}" target="_blank"><button>${name}</button></a>` : ""; }).join(" ");
   const rest = files.filter(f => !DOCS.some(([end]) => f.endsWith(end)) && !f.endsWith(".html"));
   return main + (rest.length ? `<div class="meta" style="margin-top:6px">Other files: ${rest.map(f => `<a href="${f}" target="_blank">${f.split("/").pop()}</a>`).join("")}</div>` : "");
 }
@@ -214,7 +217,7 @@ async function show(id) {
     </div>
     ${j.template ? `<div class="ai" style="background:var(--warnbg)">These documents are the generic template, not tailored: the AI was unavailable. Click “Write cover letter + CV” again later. Auto-apply never sends a template.</div>` : ""}
     ${(j.files || []).length ? `<h3 class="sec">Your documents for this job</h3>` : ""}
-    <div class="files" id="files">${docLinks(j.files || [])}</div>
+    <div class="files" id="files">${docLinks(j.files || [], j.id)}</div>
     <div id="letter"></div>
     <h3 class="sec">Full posting</h3>
     <div class="desc">${esc(j.description || "No description in the feed — it is fetched from the job page when you write the letter.")}</div>`;

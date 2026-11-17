@@ -36,11 +36,15 @@ def make_handler(cfg):
         def log_message(self, *a):
             pass
 
-        def _send(self, code, body, ctype="application/json"):
+        def _send(self, code, body, ctype="application/json", filename=None):
             data = body if isinstance(body, bytes) else (
                 json.dumps(body, ensure_ascii=False).encode() if ctype == "application/json" else body.encode())
             self.send_response(code)
             self.send_header("Content-Type", ctype + ("; charset=utf-8" if "text" in ctype or "json" in ctype else ""))
+            if filename:                          # download under a proper name (ASCII fallback + UTF-8 form)
+                ascii_name = filename.encode("ascii", "ignore").decode() or "document.pdf"
+                self.send_header("Content-Disposition", f"attachment; filename=\"{ascii_name}\"; "
+                                                        f"filename*=UTF-8''{urllib.parse.quote(filename)}")
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
@@ -100,6 +104,18 @@ def make_handler(cfg):
                     on = set(pipeline.enabled_sources(cfg))      # hide sources that are off or not set up
                     return self._send(200, {"runs": [dict(r) for r in rows if r["source"] in on],
                                             "counts": [dict(r) for r in counts]})
+                if u.path == "/api/pdf":          # ?id=<job>&doc=cv|letter -> the tailored document as a PDF download
+                    jid, doc = q.get("id", [""])[0], q.get("doc", ["cv"])[0]
+                    con = connect(cfg)
+                    job = pipeline.job_row(con, jid)
+                    con.close()
+                    folder = Path(job.get("app_dir") or "")
+                    if not job.get("app_dir") or not (folder / "cover_letter.txt").exists():
+                        return self._send(409, {"error": "Write the cover letter + CV for this job first."})
+                    with _pdf_lock:
+                        cv_pdf, letter_pdf = _pdfs(cfg, job, folder)
+                    f = letter_pdf if doc == "letter" else cv_pdf
+                    return self._send(200, f.read_bytes(), "application/pdf", filename=_pdf_name(cfg, job, doc))
                 if u.path.startswith("/files/"):
                     p = (app_dir / urllib.parse.unquote(u.path[7:])).resolve()
                     if app_dir.resolve() not in p.parents or not p.is_file():
@@ -183,6 +199,32 @@ def _bg(cfg):                       # called with _apply_lock held: only one bro
 
 
 _apply_lock = threading.Lock()
+_pdf_lock = threading.Lock()
+
+
+def _pdfs(cfg, job, folder: Path):
+    """The job's CV and letter as PDFs, rebuilt whenever the text is newer than the PDF."""
+    name = cfg["profile"]["name"].replace(" ", "_")
+    cv_pdf, letter_pdf = folder / f"{name}_CV.pdf", folder / f"{name}_Cover_Letter.pdf"
+    src = max((folder / n).stat().st_mtime for n in ("cover_letter.txt", "cv_tailored.md") if (folder / n).exists())
+    if not (cv_pdf.exists() and letter_pdf.exists() and min(cv_pdf.stat().st_mtime, letter_pdf.stat().st_mtime) >= src):
+        from playwright.sync_api import sync_playwright
+        from .apply import make_documents
+        with sync_playwright() as pw:
+            b = pw.chromium.launch(headless=True)
+            try:
+                cv_pdf, letter_pdf, _ = make_documents(cfg, job, folder, b)
+            finally:
+                b.close()
+    return cv_pdf, letter_pdf
+
+
+def _pdf_name(cfg, job, doc: str) -> str:
+    """Jane_Doe_CV_Magenta_Telekom.pdf / Jane_Doe_Cover_Letter_Magenta_Telekom.pdf"""
+    comp = re.sub(r"\b(gmbh|ag|kg|co|se|flexco|og|mbh|ltd|inc)\b\.?", " ", job.get("company") or "", flags=re.I)
+    comp = "_".join(re.findall(r"[\wÄÖÜäöüß]+", comp)[:4])
+    name = cfg["profile"]["name"].replace(" ", "_")
+    return f"{name}_{'Cover_Letter' if doc == 'letter' else 'CV'}{'_' + comp if comp else ''}.pdf"
 
 
 def _kick_apply(cfg):

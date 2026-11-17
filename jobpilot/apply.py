@@ -946,6 +946,14 @@ def login(cfg: dict, url: str, log=print) -> None:
     else:
         log(f"Saved{' and verified' if ok else ''}. JobPilot will now apply on: {', '.join(sorted(hosts))}")
     (profile_dir(cfg) / "jobpilot_logins.json").write_text(json.dumps(sorted(hosts)))
+    try:                                   # sites you just signed in to are worth trying again
+        from .core import connect
+        _c = connect(cfg); _host_stats(_c)
+        for _h in hosts:
+            _c.execute("DELETE FROM hosts WHERE host LIKE ?", (f"%{_h}%",))
+        _c.commit(); _c.close()
+    except Exception:
+        pass
 
 
 def apply_one(cfg, con, llm, job: dict, ctx, pdf_browser, log=print, hand: bool = False) -> tuple[str, str]:
@@ -1028,6 +1036,7 @@ def apply_one(cfg, con, llm, job: dict, ctx, pdf_browser, log=print, hand: bool 
                 pass
 
 
+FORCE = "retrying because you asked…"
 WALL_NOTE = re.compile(r"needs an account|create an account|sign in before|blocks automated|CAPTCHA|"
                        r"only lets you apply with an account", re.I)
 SOFT_NOTE = re.compile(r"no confirmation appeared|couldn't find an application form", re.I)
@@ -1082,7 +1091,8 @@ def apply_queued(cfg: dict, con, log=print, ids: list[str] | None = None, hand: 
                 host = urllib.parse.urlparse(_target_url(job)).netloc.lower()
             except Exception:
                 host = ""
-            why = _known_wall(hosts, host)
+            why = None if job.get("apply_note") == FORCE or any(m in host or host in m for m in logged_in_hosts(cfg)) \
+                else _known_wall(hosts, host)      # you clicked Apply yourself, or signed in there: always try
             if why:
                 con.execute("UPDATE jobs SET status='manual', apply_note=? WHERE id=?",
                             (f"{host}: {why} (known from earlier attempts — not retried)", jid))

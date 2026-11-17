@@ -26,6 +26,9 @@ class State:
     busy: bool = False
 
 
+from .apply import FORCE
+
+
 def make_handler(cfg):
     app_dir = resolve(cfg, cfg["app"]["applications_dir"])
 
@@ -124,7 +127,7 @@ def make_handler(cfg):
                 if u.path == "/api/apply":      # {"id": ...} approve one job, or {} to run everything queued
                     con = connect(cfg)
                     if b.get("id"):
-                        con.execute("UPDATE jobs SET status='queued', apply_note=NULL WHERE id=?", (b["id"],))
+                        con.execute("UPDATE jobs SET status='queued', apply_note=? WHERE id=?", (FORCE, b["id"]))
                         con.commit()
                     con.close()
                     _kick_apply(cfg)

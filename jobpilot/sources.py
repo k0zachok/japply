@@ -62,9 +62,13 @@ def karriere(cfg) -> Iterator[Job]:
     seen, budget = set(), int(s.get("max_new_per_run", 150))
     for kw in _kw(cfg):
         for page in range(1, int(s.get("pages_per_keyword", 2)) + 1):
-            html = http(f"https://www.karriere.at/jobs/{urllib.parse.quote(kw.replace(' ', '-'))}/{where}"
-                        + (f"?page={page}" if page > 1 else ""), headers={"Accept": "text/html"})
-            ids = list(dict.fromkeys(re.findall(r'href="https://www\.karriere\.at/jobs/(\d{5,})"', html)))
+            # the site's own "load more jobs" request: same URL, answered as JSON, and it really pages
+            try:
+                raw = http(f"https://www.karriere.at/jobs/{urllib.parse.quote(kw.replace(' ', '-'))}/{where}?page={page}",
+                           headers={"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"})
+            except HttpError:               # past the last page of this keyword (the site answers 410)
+                break
+            ids = list(dict.fromkeys(re.findall(r'\\?/jobs\\?/(\d{5,})', raw)))
             for jid in ids:
                 if jid in seen or f"karriere:{jid}" in known:
                     continue

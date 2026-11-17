@@ -81,7 +81,7 @@
   <input type="search" id="q" placeholder="Search title, company…" oninput="render()">
   <span class="count">Where:</span><span id="where"></span>
   <span class="count">Type:</span><span id="types"></span>
-  <span class="count">Min score</span><input type="range" id="min" min="0" max="90" step="5" value="30" oninput="minv.textContent=this.value;render()"><span id="minv" class="count">30</span>
+  <span class="count" title="Applies to the Inbox tab">Inbox min score</span><input type="range" id="min" min="0" max="90" step="5" value="30" oninput="minv.textContent=this.value;render()"><span id="minv" class="count">30</span>
   <label class="count"><input type="checkbox" id="nogerman" onchange="render()"> hide "fluent German"</label>
   <span class="spacer"></span><span class="count" id="status"></span><span class="count" id="count"></span>
 </div>

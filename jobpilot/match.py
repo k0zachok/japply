@@ -250,5 +250,18 @@ def triage(cfg: dict, con, ai_on: bool) -> dict:
             st = "review"
         stats[st] += 1
         con.execute("UPDATE jobs SET status=? WHERE id=?", (st, r["id"]))
+    # The same posting often arrives twice under different company spellings ("ADMIRAL" / "ADMIRAL Technologies").
+    # Never queue or show one that was already applied to, is waiting on you, or that you rejected.
+    dup = con.execute(
+        "SELECT a.id FROM jobs a JOIN jobs b ON lower(a.title) = lower(b.title) AND a.id != b.id "
+        "AND (lower(a.company) LIKE '%' || lower(substr(b.company, 1, 6)) || '%' "
+        "     OR lower(b.company) LIKE '%' || lower(substr(a.company, 1, 6)) || '%') "
+        "WHERE a.status IN ('queued', 'review') AND length(b.company) >= 4 AND length(a.company) >= 4 "
+        "AND (b.status IN ('applied', 'interview', 'offer', 'rejected', 'hidden', 'manual') "
+        "     OR (b.status IN ('queued', 'review') AND b.id < a.id))").fetchall()
+    for r in dup:
+        con.execute("UPDATE jobs SET status='skipped', apply_note='same job as one already handled (duplicate listing)' "
+                    "WHERE id=?", (r["id"],))
+    stats["duplicates"] = len(dup)
     con.commit()
     return stats

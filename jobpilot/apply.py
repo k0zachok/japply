@@ -960,8 +960,8 @@ def apply_one(cfg, con, llm, job: dict, ctx, pdf_browser, log=print, hand: bool 
 
     def documents():
         """Written only once the form (or an e-mail address) is reachable, so no AI quota is spent on dead ends."""
-        if not (folder / "cover_letter.txt").exists():
-            tailor(cfg, job, llm, log=log)
+        if not (folder / "cover_letter.txt").exists() or (folder / ".template").exists():
+            tailor(cfg, job, llm, log=log, strict=True)      # a generic template letter is never sent automatically
         return make_documents(cfg, job, folder, pdf_browser)
 
     mail = apply_email_address(job.get("description", ""))

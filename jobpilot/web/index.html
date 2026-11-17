@@ -155,11 +155,16 @@ function render() {
           ${(j.flags || "").split(",").filter(f => f && f !== "short description").map(f => `<span class="tag flag">${esc(f)}</span>`).join("")}
           ${j.app_dir ? `<span class="tag st">files</span>` : ""}</div>
         ${j.apply_note ? `<div class="meta" style="color:var(--warn)">${esc(j.apply_note)}</div>` : ""}</div>
-    </div>`).join("") : `<div class="empty">Nothing here yet.${tab === "new" ? " Lower the min score or click “Find new jobs”." : ""}</div>`;
+    </div>`).join("") : (() => { const all = jobs.filter(j => j.status === tab).length;
+      return all ? `<div class="empty">${all} job${all > 1 ? "s" : ""} in this tab ${all > 1 ? "are" : "is"} hidden by the filters above (min score, search or type).<br><br><button onclick="showAll()">Show all</button></div>`
+                 : `<div class="empty">Nothing here yet.${tab === "new" ? " Click “Find new jobs”." : ""}</div>`; })();
 }
 
 function fact(k, v, wide) { return v ? `<div class="fact ${wide ? "wide" : ""}"><small>${k}</small><b>${esc(v)}</b></div>` : ""; }
 function list(a) { return Array.isArray(a) && a.length ? `<ul>${a.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""; }
+function showAll() { const m = document.querySelector("input[type=range]"); m.value = 0; minv.textContent = "0";
+  document.querySelector("input[type=search]").value = ""; where.clear(); types.clear();
+  chips("where", WHERE, where); chips("types", TYPES, types); render(); }
 async function show(id) {
   sel = id; render();
   const j = await (await fetch("/api/job/" + encodeURIComponent(id))).json();
@@ -192,6 +197,7 @@ async function show(id) {
       <button id="tbtn" onclick="tailorJob('${esc(j.id)}')">✍ Write cover letter + CV</button>
       ${["saved","applied","interview","offer","rejected","hidden"].map(s => `<button onclick="setStatus('${esc(j.id)}','${s}')" ${j.status === s ? "disabled" : ""}>${label(TABS, s)}</button>`).join("")}
     </div>
+    ${j.template ? `<div class="ai" style="background:var(--warnbg)">These documents are the generic template, not tailored: the AI was unavailable. Click “Write cover letter + CV” again later. Auto-apply never sends a template.</div>` : ""}
     <div class="files" id="files">${(j.files || []).map(f => `<a href="${f}" target="_blank">${f.split("/").pop()}</a>`).join("")}</div>
     <h3 class="sec">Full posting</h3>
     <div class="desc">${esc(j.description || "No description in the feed — it is fetched from the job page when you write the letter.")}</div>`;
@@ -241,7 +247,7 @@ async function countQuestions() {
 }
 
 async function tailorJob(id) {
-  const b = $("tbtn"); b.disabled = true; b.textContent = "Writing… (local AI can take a minute)";
+  const b = $("tbtn"); b.disabled = true; b.textContent = "Writing… (can take a minute)";
   const r = await (await fetch("/api/tailor", {method:"POST", body: JSON.stringify({id})})).json();
   if (r.error) { alert(r.error); b.disabled = false; b.textContent = "✍ Write cover letter + CV"; return; }
   const j = jobs.find(x => x.id === id); j.app_dir = "1"; if (j.status === "new") j.status = "saved";
@@ -251,9 +257,10 @@ async function tailorJob(id) {
 async function refresh() {
   $("refresh").disabled = true; $("log").textContent = ""; dlgLog.showModal();
   const r = await fetch("/api/refresh", {method:"POST", body:"{}"});
+  const note = r.ok ? "" : ((await r.json()).error || "Could not start") + "\n\n";
   const tick = async () => {
     const p = await (await fetch("/api/progress")).json();
-    $("log").textContent = p.log.join("\n"); $("log").scrollTop = 1e9;
+    $("log").textContent = note + (p.log.join("\n") || (p.busy ? "Starting…" : "")); $("log").scrollTop = 1e9;
     if (p.busy) setTimeout(tick, 1500); else { $("refresh").disabled = false; load(); }
   };
   tick();

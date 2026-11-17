@@ -129,7 +129,8 @@ def _with_summary(cv_md: str, summary: str) -> str:
     return cv_md[:m.start(2)] + summary + "\n\n" + cv_md[m.end(2):] if m else cv_md
 
 
-def tailor(cfg: dict, job: dict, llm, log=print) -> Path:
+def tailor(cfg: dict, job: dict, llm, log=print, strict: bool = False) -> Path:
+    """strict=True (auto-apply): never fall back to the generic template — raise so the job waits for the AI."""
     cv = load_cv_text(cfg)
     desc = (job.get("description") or "")[:7000]
     lang = (json.loads(job["ai_json"]).get("language") if job.get("ai_json") else None) or detect_lang(desc + job["title"])
@@ -157,8 +158,12 @@ def tailor(cfg: dict, job: dict, llm, log=print) -> Path:
                 raise
             letter = None
     if letter is None:
+        if strict:
+            from .core import HttpError
+            raise HttpError(503, "llm", "the AI could not write a tailored letter right now")
         letter = _template_letter(cfg, job, lang, avail)
         cv_md = cv
+    (folder / ".template").unlink(missing_ok=True) if cv_md is not cv else (folder / ".template").write_text("1")
 
     (folder / "cover_letter.txt").write_text(letter, encoding="utf-8")
     (folder / "cv_tailored.md").write_text(cv_md, encoding="utf-8")

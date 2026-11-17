@@ -11,8 +11,14 @@ from .sources import REGISTRY
 
 
 def enabled_sources(cfg: dict) -> list[str]:
-    names = [n for n in REGISTRY if n == "companies" or cfg["sources"].get(n, {}).get("enabled", False)]
-    if cfg["sources"].get("email_alerts", {}).get("enabled"):
+    src = cfg["sources"]
+    names = [n for n in REGISTRY if n == "companies" or src.get(n, {}).get("enabled", False)]
+    # sources that are switched on but not set up yet are skipped quietly instead of failing every run
+    if "adzuna" in names and not (src["adzuna"].get("app_id") and src["adzuna"].get("app_key")):
+        names.remove("adzuna")
+    if "rss" in names and not src.get("rss", {}).get("feeds"):
+        names.remove("rss")
+    if src.get("email_alerts", {}).get("enabled"):
         names.append("email_alerts")
     return names
 

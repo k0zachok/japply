@@ -68,7 +68,9 @@ def make_handler(cfg):
                     con.close()
                     if d.get("app_dir"):
                         p = Path(d["app_dir"])
-                        d["files"] = [f"/files/{p.name}/{f.name}" for f in sorted(p.iterdir())] if p.exists() else []
+                        d["files"] = [f"/files/{p.name}/{f.name}" for f in sorted(p.iterdir())
+                                      if not f.name.startswith(".")] if p.exists() else []
+                        d["template"] = (p / ".template").exists()
                     desc = (d.get("description") or "")
                     low = desc.lower()
                     d["skills_hit"] = [k for k in cfg["profile"].get("skills", [])
@@ -92,7 +94,9 @@ def make_handler(cfg):
                         "(SELECT MAX(id) FROM runs GROUP BY source) ORDER BY source").fetchall()
                     counts = con.execute("SELECT source, COUNT(*) n, SUM(status!='filtered') kept FROM jobs GROUP BY source").fetchall()
                     con.close()
-                    return self._send(200, {"runs": [dict(r) for r in rows], "counts": [dict(r) for r in counts]})
+                    on = set(pipeline.enabled_sources(cfg))      # hide sources that are off or not set up
+                    return self._send(200, {"runs": [dict(r) for r in rows if r["source"] in on],
+                                            "counts": [dict(r) for r in counts]})
                 if u.path.startswith("/files/"):
                     p = (app_dir / urllib.parse.unquote(u.path[7:])).resolve()
                     if app_dir.resolve() not in p.parents or not p.is_file():
@@ -132,8 +136,9 @@ def make_handler(cfg):
                     con.close()
                     return self._send(200, {"ok": True})
                 if u.path == "/api/refresh":
-                    if State.busy:
-                        return self._send(409, {"error": "already running"})
+                    if State.busy or not _apply_lock.acquire(blocking=False):
+                        return self._send(409, {"error": "A run is already in progress — its log is shown here."})
+                    State.busy, State.log = True, []       # set before the thread starts, so the page never sees "idle"
                     threading.Thread(target=_bg, args=(cfg,), daemon=True).start()
                     return self._send(200, {"ok": True})
                 if u.path == "/api/tailor":
@@ -144,10 +149,13 @@ def make_handler(cfg):
                                 "THEN 'saved' ELSE status END WHERE id=?", (str(folder), b["id"]))
                     con.commit()
                     con.close()
-                    return self._send(200, {"ok": True, "files": [f"/files/{folder.name}/{f.name}"
-                                                                  for f in sorted(folder.iterdir())]})
+                    return self._send(200, {"ok": True, "template": (folder / ".template").exists(),
+                                            "files": [f"/files/{folder.name}/{f.name}" for f in sorted(folder.iterdir())
+                                                      if not f.name.startswith(".")]})
                 if u.path == "/api/add":
                     con = connect(cfg)
+                    if not (b.get("url", "").strip() or b.get("text", "").strip()):
+                        return self._send(400, {"error": "Paste the job's link or its text first."})
                     jid = pipeline.add_url(cfg, con, b.get("url", "").strip(), b.get("text", ""),
                                            b.get("title", ""), b.get("company", ""), log=lambda *_: None)
                     con.close()
@@ -160,8 +168,7 @@ def make_handler(cfg):
     return H
 
 
-def _bg(cfg):
-    State.busy, State.log = True, []
+def _bg(cfg):                       # called with _apply_lock held: only one browser may use the profile at a time
     try:
         pipeline.run(cfg, log=State.log.append)
         State.log.append("Done ✓")
@@ -169,6 +176,7 @@ def _bg(cfg):
         State.log.append(f"Error: {e}")
     finally:
         State.busy = False
+        _apply_lock.release()
 
 
 _apply_lock = threading.Lock()

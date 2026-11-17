@@ -360,6 +360,10 @@ def _pick_option(options: list[str], answer: str) -> str | None:
     for o in options:
         if a and (a in norm(o) or norm(o) in a) and norm(o):
             return o
+    for alt in ALT_NAMES.get(a, []):                      # the list may be in German (Austria -> Österreich)
+        for o in options:
+            if norm(alt) == norm(o) or norm(alt) in norm(o):
+                return o
     return None
 
 
@@ -707,6 +711,15 @@ def _send_email(cfg, job, to: str, letter: str, attachments: list[Path], folder:
 # ------------------------------------------------------------------ main loop
 def _target_url(job: dict) -> str:
     u = job["url"]
+    if job["source"] == "karriere":
+        # Most karriere.at postings link out to the employer's own application page; go straight there.
+        try:
+            from .core import http
+            m = re.search(r'<a[^>]*href="([^"]+)"[^>]*m-applyButton__button--external', http(u, headers={"Accept": "text/html"}))
+            if m:
+                return html.unescape(m.group(1))
+        except Exception:
+            pass
     if job["source"] == "greenhouse" and "greenhouse.io" not in u:
         # The company's own careers page only embeds this Greenhouse form (and is often behind a bot wall).
         slug, _, jid = job["id"].split(":", 1)[1].rpartition("-")

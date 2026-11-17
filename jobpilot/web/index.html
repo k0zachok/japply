@@ -62,7 +62,8 @@
   button.big { padding:9px 16px; font-weight:600; } kbd { font:11px ui-monospace,monospace; opacity:.7; border:1px solid currentColor; border-radius:4px; padding:0 4px; margin-left:4px; }
   #dry { background:var(--warnbg); color:var(--warn); padding:6px 20px; font-size:13px; display:none; }
   #dlgQ input { width:100%; }
-  @media (max-width: 900px) { main { grid-template-columns:1fr; } #detail { position:static; max-height:none; } }
+  header { flex-wrap:wrap; } .tabs { display:flex; flex-wrap:wrap; gap:4px; }
+  @media (max-width: 900px) { main { grid-template-columns:1fr; } #detail { position:static; max-height:none; } header { position:static; } }
 </style>
 </head>
 <body>
@@ -165,6 +166,20 @@ function list(a) { return Array.isArray(a) && a.length ? `<ul>${a.map(x => `<li>
 function showAll() { const m = document.querySelector("input[type=range]"); m.value = 0; minv.textContent = "0";
   document.querySelector("input[type=search]").value = ""; where.clear(); types.clear();
   chips("where", WHERE, where); chips("types", TYPES, types); render(); }
+const DOCS = [["Cover_Letter.pdf", "Cover letter (PDF)"], ["_CV.pdf", "CV (PDF)"], ["cover_letter.docx", "Cover letter (Word)"],
+              ["cv_tailored.docx", "CV (Word)"], ["form_submitted.png", "Screenshot: submitted form"],
+              ["form_problem.png", "Screenshot: where it stopped"], ["form_filled.png", "Screenshot: filled form"]];
+function docLinks(files) {
+  const main = DOCS.map(([end, name]) => { const f = files.find(x => x.endsWith(end)); return f ? `<a href="${f}" target="_blank"><button>${name}</button></a>` : ""; }).join(" ");
+  const rest = files.filter(f => !DOCS.some(([end]) => f.endsWith(end)) && !f.endsWith(".html"));
+  return main + (rest.length ? `<div class="meta" style="margin-top:6px">Other files: ${rest.map(f => `<a href="${f}" target="_blank">${f.split("/").pop()}</a>`).join("")}</div>` : "");
+}
+async function showLetter(files, fresh) {
+  const f = (files || []).find(x => x.endsWith("cover_letter.txt")); if (!f || !$("letter")) return;
+  const t = await (await fetch(f)).text();
+  $("letter").innerHTML = `<details ${fresh ? "open" : ""}><summary style="cursor:pointer;margin:10px 0 6px"><b>Cover letter</b>${fresh ? " — written just now" : ""}</summary><div class="ai desc">${esc(t)}</div></details>`;
+  if (fresh) $("letter").scrollIntoView({behavior: "smooth", block: "start"});
+}
 async function show(id) {
   sel = id; render();
   const j = await (await fetch("/api/job/" + encodeURIComponent(id))).json();
@@ -194,13 +209,16 @@ async function show(id) {
       ${j.status === "manual" ? `<button class="big" onclick="setStatus('${esc(j.id)}','applied')">I applied myself</button>` : ""}</div>` : ""}
     <div class="actions">
       <a href="${esc(j.url)}" target="_blank" rel="noopener"><button class="primary">Open posting ↗</button></a>
-      <button id="tbtn" onclick="tailorJob('${esc(j.id)}')">✍ Write cover letter + CV</button>
+      <button id="tbtn" onclick="tailorJob('${esc(j.id)}')">✍ ${(j.files || []).some(f => f.endsWith("cover_letter.txt")) ? "Rewrite" : "Write"} cover letter + CV</button>
       ${["saved","applied","interview","offer","rejected","hidden"].map(s => `<button onclick="setStatus('${esc(j.id)}','${s}')" ${j.status === s ? "disabled" : ""}>${label(TABS, s)}</button>`).join("")}
     </div>
     ${j.template ? `<div class="ai" style="background:var(--warnbg)">These documents are the generic template, not tailored: the AI was unavailable. Click “Write cover letter + CV” again later. Auto-apply never sends a template.</div>` : ""}
-    <div class="files" id="files">${(j.files || []).map(f => `<a href="${f}" target="_blank">${f.split("/").pop()}</a>`).join("")}</div>
+    ${(j.files || []).length ? `<h3 class="sec">Your documents for this job</h3>` : ""}
+    <div class="files" id="files">${docLinks(j.files || [])}</div>
+    <div id="letter"></div>
     <h3 class="sec">Full posting</h3>
     <div class="desc">${esc(j.description || "No description in the feed — it is fetched from the job page when you write the letter.")}</div>`;
+  showLetter(j.files, window._fresh === id); window._fresh = null;
 }
 
 async function setStatus(id, status) {
@@ -251,7 +269,7 @@ async function tailorJob(id) {
   const r = await (await fetch("/api/tailor", {method:"POST", body: JSON.stringify({id})})).json();
   if (r.error) { alert(r.error); b.disabled = false; b.textContent = "✍ Write cover letter + CV"; return; }
   const j = jobs.find(x => x.id === id); j.app_dir = "1"; if (j.status === "new") j.status = "saved";
-  drawTabs(); render(); show(id);
+  window._fresh = id; drawTabs(); render(); show(id);
 }
 
 async function refresh() {

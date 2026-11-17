@@ -92,7 +92,7 @@ FIELDS_JS = r"""
     return null;
   };
   const isReq = l => !!l && (/required/i.test(l.className || '') || /\*\s*$|\(required\)|pflichtfeld/i.test(txt(l)));
-  document.querySelectorAll('[data-jp],[data-jp-yn]').forEach(e => { e.removeAttribute('data-jp'); e.removeAttribute('data-jp-yn'); });
+  document.querySelectorAll('[data-jp],[data-jp-yn],[data-jp-btn]').forEach(e => { e.removeAttribute('data-jp'); e.removeAttribute('data-jp-yn'); e.removeAttribute('data-jp-btn'); });
   const out = [];
   let n = 0;
   for (const e of document.querySelectorAll('input, textarea, select')) {
@@ -103,6 +103,20 @@ FIELDS_JS = r"""
     // a native <select> hidden behind a styled widget (select2, chosen, tom-select…) is still the real field
     const widget = e.tagName === 'SELECT' && e.name && e.options.length > 1 &&
                    /select2-hidden|chosen|selectized|tomselected|ts-hidden|visually-hidden|sr-only/.test(e.className);
+    // Radix-style select: a button[role=combobox] with the real <select> hidden right after it
+    const btn = e.tagName === 'SELECT' && e.previousElementSibling && e.previousElementSibling.matches('button[role=combobox]')
+                ? e.previousElementSibling : null;
+    if (btn) {
+      const bl = own(btn), wrap = bl && bl.parentElement;
+      btn.setAttribute('data-jp-btn', String(n));
+      e.setAttribute('data-jp', String(n));
+      out.push({cc: '', i: n++, type: 'select', name: e.name || '', btn: true, option: '', yn: false, combo: false,
+                label: (txt(bl) || btn.getAttribute('aria-label') || '').slice(0, 300),
+                required: btn.getAttribute('aria-required') === 'true' || /\*|required/i.test(txt(wrap)),
+                options: [...e.options].map(x => txt(x)).filter(Boolean),
+                value: btn.hasAttribute('data-placeholder') ? '' : txt(btn)});
+      continue;
+    }
     if (!widget && type !== 'file' && !vis(e) && !['radio', 'checkbox'].includes(type)) continue;
     if (e.disabled || e.readOnly && e.getAttribute('role') !== 'combobox') continue;
     if (!widget && e.getAttribute('aria-hidden') === 'true' || (e.tabIndex === -1 && !e.name && !['file', 'radio', 'checkbox'].includes(type))) continue;
@@ -126,7 +140,8 @@ FIELDS_JS = r"""
     out.push({
       cc,
       i: n++, type, name: e.name || e.id || '', label, option: choice && !yn ? txt(o).slice(0, 200) : '', yn,
-      required: e.required || e.getAttribute('aria-required') === 'true' || isReq(q),
+      required: e.required || e.getAttribute('aria-required') === 'true' || isReq(q) ||
+                (choice && !!e.closest('[role=radiogroup][aria-required=true], [role=group][aria-required=true]')),
       combo: e.getAttribute('role') === 'combobox' || e.getAttribute('aria-autocomplete') === 'list',
       options: e.tagName === 'SELECT' ? [...e.options].map(x => txt(x)).filter(Boolean) : [],
       value: choice ? (e.checked || (yn && !!e.parentElement.querySelector('button[aria-pressed=true]')) ? '1' : '')
@@ -283,6 +298,9 @@ RULES:
 - Questions about the candidate's preferences or willingness (days in the office, relocation, travel, shifts,
   contract type, start date not given above): answer "UNKNOWN" unless the details above state it.
 - Consent to the employer's data-privacy notice / processing of this application: {consent}
+- Optional extras (talent pool, newsletter, being contacted about other jobs, sharing the data with other
+  companies): choose the declining option.
+- "How did you hear about us / this job": the candidate found it on {found_on}; pick the closest option.
 - If the facts above do not clearly answer a question, answer exactly "UNKNOWN". Do not guess.
 Return ONLY JSON: {{"answers": {{"<i>": "<answer>", ...}}}}"""
 
@@ -296,6 +314,7 @@ def _ask_llm(cfg, llm, job, questions: list[dict]) -> dict:
         res = llm.json(ASK_PROMPT.format(
             cv=load_cv_text(cfg)[:6000], details=json.dumps(details, ensure_ascii=False), title=job["title"],
             company=job.get("company", ""), qs=json.dumps(questions, ensure_ascii=False),
+            found_on={"karriere": "karriere.at"}.get(job.get("source"), "a job board / the company's careers page"),
             consent="choose the agreeing option (the candidate accepts it)." if cfg.get("apply", {}).get(
                 "accept_privacy", True) else 'answer "UNKNOWN".'), best=True)
         return {str(k): str(v).strip() for k, v in (res.get("answers") or {}).items()}
@@ -612,6 +631,14 @@ def _set(fr, f, el, ans: str):
         pick = _pick_option(f["options"], ans)
         if not pick:
             raise NeedsYou(f"no option matching “{ans[:40]}” for “{f['label'][:60]}”")
+        if f.get("btn"):                                   # styled drop-down: open it and click the option
+            try:
+                fr.locator(f'[data-jp-btn="{f["i"]}"]').click(timeout=4000)
+                fr.locator("[role=option]:visible").filter(
+                    has_text=re.compile(r"^\s*" + re.escape(pick) + r"\s*$")).first.click(timeout=4000)
+                return
+            except Exception:
+                fr.page.keyboard.press("Escape")
         try:
             el.select_option(label=pick, timeout=3000)
         except Exception:                                  # hidden behind a widget: set it directly
@@ -704,11 +731,17 @@ def _texts(page) -> list[str]:
     return out
 
 
+def _success_phrases(texts: list[str]) -> set[str]:
+    """Success wording with a little context, so "thank you for your interest" (form intro) and
+    "thank you for your application" (confirmation) count as different phrases."""
+    return {" ".join((m.group(0) + t[m.end(): m.end() + 28]).lower().split()) for t in texts for m in SUCCESS.finditer(t)}
+
+
 def _confirmed(page, before: set[str], fr) -> bool:
     """A real confirmation: success wording that was NOT on the page before the click (form intros often say
     "thank you for your interest"), with no error message and no field marked invalid."""
     texts = _texts(page)
-    new = {m.group(0).lower() for t in texts for m in SUCCESS.finditer(t)} - before
+    new = _success_phrases(texts) - before
     if not new:
         return False
     if any(FORM_ERROR.search(t) for t in texts):
@@ -731,7 +764,16 @@ def _submit(cfg, llm, page, fr, log) -> str:
         btn = cand.last if cand.count() else None
     if btn is None:
         raise NeedsYou("couldn't find the submit button")
-    before = {m.group(0).lower() for t in _texts(page) for m in SUCCESS.finditer(t)}
+    if sum(f.locator("[name='cf-turnstile-response'], .cf-turnstile").count() for f in page.frames):
+        raise NeedsYou("the form has a “verify you are human” check (CAPTCHA) — finish it with:  python -m jobpilot finish")
+    try:
+        if btn.is_disabled():
+            raise NeedsYou("the submit button stays disabled — a human check or a missing required field (see form_problem.png)")
+    except NeedsYou:
+        raise
+    except Exception:
+        pass
+    before = _success_phrases(_texts(page))
     had_error = any(FORM_ERROR.search(t) for t in _texts(page))
     t0 = time.time()
     btn.click(timeout=8000)

@@ -36,7 +36,8 @@ SUCCESS = re.compile(r"thank you|thanks for|danke|vielen dank|(you'?ve|you have)
                      r"successfully (submitted|applied|sent)|bewerbung (ist |wurde )?(eingegangen|erhalten|gesendet|"
                      r"übermittelt|abgeschickt)|erfolgreich", re.I)
 CAPTCHA = ("iframe[src*='hcaptcha.com']", "iframe[src*='challenges.cloudflare.com']",
-           "iframe[src*='recaptcha/api2/bframe']", "iframe[src*='recaptcha/enterprise/bframe']", "#px-captcha")
+           "iframe[src*='recaptcha/api2/bframe']", "iframe[src*='recaptcha/enterprise/bframe']", "#px-captcha",
+           "iframe[src*='recaptcha/api2/anchor']:not([src*='size=invisible'])", "iframe[src*='captcha-delivery.com']")
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]*[a-z]{2,}", re.I)
 
 # label/name pattern -> key in [apply.answers] (or a special value). First match wins.
@@ -171,21 +172,50 @@ def _md_html(md: str) -> str:
     return "\n".join(out) + ("</ul>" if in_ul else "")
 
 
-CSS = ("<style>@page{size:A4;margin:18mm 17mm}body{font:10.5pt/1.42 Helvetica,Arial,sans-serif;color:#111}"
-       "h1{font-size:20pt;margin:0 0 2pt}h2{font-size:11.5pt;margin:12pt 0 4pt;border-bottom:1px solid #999;"
-       "text-transform:uppercase;letter-spacing:.04em}h3{font-size:10.5pt;margin:8pt 0 2pt}p{margin:3pt 0}"
-       "ul{margin:2pt 0;padding-left:15pt}li{margin:1.5pt 0}.l p{margin:0 0 10pt;font-size:11pt;line-height:1.5}</style>")
+CSS = ("<style>@page{size:A4;margin:14mm 16mm}body{font:10pt/1.38 Helvetica,Arial,sans-serif;color:#111}"
+       "h1{font-size:20pt;margin:0 0 2pt}h2{font-size:11pt;margin:10pt 0 4pt;border-bottom:1px solid #999;"
+       "text-transform:uppercase;letter-spacing:.04em}h3{font-size:10pt;margin:7pt 0 2pt}p{margin:3pt 0}"
+       "ul{margin:2pt 0;padding-left:15pt}li{margin:1.2pt 0}"
+       ".l{font-size:11pt;line-height:1.5;margin:6mm 4mm}.l p{margin:0 0 10pt}.l .from{font-size:10pt;color:#333;"
+       "border-bottom:1px solid #999;padding-bottom:6pt;margin-bottom:18pt}.l .from b{font-size:14pt;color:#111;"
+       "display:block;margin-bottom:2pt}.l .to{margin-bottom:16pt}.l .date{text-align:right;margin-bottom:14pt}"
+       ".l .subj{font-weight:bold;margin-bottom:14pt}</style>")
+MONTHS_DE = ["Jänner", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober",
+             "November", "Dezember"]
+
+
+def _pdf_fit(page, path: Path, max_pages: int = 1) -> None:
+    """Print to PDF, shrinking slightly until it fits on max_pages (a junior CV should be one page)."""
+    from pypdf import PdfReader
+    for scale in (1.0, 0.95, 0.9, 0.86, 0.82):
+        page.pdf(path=str(path), format="A4", scale=scale)
+        try:
+            if len(PdfReader(str(path)).pages) <= max_pages:
+                return
+        except Exception:
+            return
 
 
 def make_documents(cfg: dict, job: dict, folder: Path, browser) -> tuple[Path, Path, str]:
     """PDF versions of the tailored CV and letter (rendered by the browser). Returns (cv, letter, letter text)."""
+    import datetime
     a, name = cfg.get("apply", {}), cfg["profile"]["name"].replace(" ", "_")
+    ans = a.get("answers", {})
     letter = (folder / "cover_letter.txt").read_text(encoding="utf-8")
     page = browser.new_page()
     letter_pdf = folder / f"{name}_Cover_Letter.pdf"
+    de = bool(re.match(r"\s*(sehr geehrte|liebe|guten tag|hallo)", letter, re.I))
+    today = datetime.date.today()
+    date = f"{today.day}. {MONTHS_DE[today.month - 1]} {today.year}" if de else today.strftime("%-d %B %Y")
+    city = {"Vienna": "Wien"}.get(ans.get("city", ""), ans.get("city", "")) if de else ans.get("city", "")
+    contact = " · ".join(filter(None, [" ".join(filter(None, [ans.get("postcode"), city])), ans.get("phone"), ans.get("email")]))
+    head = (f"<div class='from'><b>{html.escape(cfg['profile']['name'])}</b>{html.escape(contact)}</div>"
+            f"<div class='to'>{html.escape(job.get('company') or '')}</div>"
+            f"<div class='date'>{html.escape(', '.join(filter(None, [city, date])))}</div>"
+            f"<div class='subj'>{'Bewerbung als' if de else 'Application for'} {html.escape(job['title'])}</div>")
     paras = "".join(f"<p>{html.escape(p.strip()).replace(chr(10), '<br>')}</p>" for p in letter.split("\n\n") if p.strip())
-    page.set_content(f"<html><head><meta charset='utf-8'>{CSS}</head><body class='l'>{paras}</body></html>")
-    page.pdf(path=str(letter_pdf), format="A4")
+    page.set_content(f"<html><head><meta charset='utf-8'>{CSS}</head><body class='l'>{head}{paras}</body></html>")
+    _pdf_fit(page, letter_pdf)
     own = resolve(cfg, a["cv_pdf"]) if a.get("cv_pdf") else None
     if own and own.exists() and not a.get("tailor_cv", True):
         cv_pdf = own
@@ -193,12 +223,11 @@ def make_documents(cfg: dict, job: dict, folder: Path, browser) -> tuple[Path, P
         cv_pdf = folder / f"{name}_CV.pdf"
         md = (folder / "cv_tailored.md").read_text(encoding="utf-8")
         page.set_content(f"<html><head><meta charset='utf-8'>{CSS}</head><body>{_md_html(md)}</body></html>")
-        page.pdf(path=str(cv_pdf), format="A4")
+        _pdf_fit(page, cv_pdf)
     page.close()
     return cv_pdf, letter_pdf, letter
 
 
-# ------------------------------------------------------------------ answers
 def _known(cfg: dict, con, label: str, name: str, choice: bool = False) -> str | None:
     """A question you answered earlier in the dashboard, else the matching [apply.answers] value."""
     r = con.execute("SELECT answer FROM answers WHERE key=? AND answer IS NOT NULL AND answer != ''",
@@ -314,7 +343,8 @@ def _open_form(ctx, page, url: str, skip_hosts: list[str], mine: list[str] = ())
         _dismiss_cookies(page)
         on_board = any(h in host for h in BOARD_HOSTS) and not any(m in host for m in mine)     # a job board's own sign-up box is not the application
         try:
-            if BLOCKED.search(page.inner_text("body", timeout=3000)[:1500]):
+            if BLOCKED.search(page.inner_text("body", timeout=3000)[:1500]) or \
+                    page.locator("iframe[src*='captcha-delivery.com']").count():
                 raise NeedsYou(f"{host} blocks automated browsers — open the posting and apply by hand (documents are ready)")
         except NeedsYou:
             raise
@@ -722,6 +752,8 @@ def _send_email(cfg, job, to: str, letter: str, attachments: list[Path], folder:
 # ------------------------------------------------------------------ main loop
 def _target_url(job: dict) -> str:
     u = job["url"]
+    if job["source"] == "dvinci":
+        return re.sub(r"(/jobs/\d+)(/.*)?$", r"\1/apply", u)
     if job["source"] == "karriere":
         # Most karriere.at postings link out to the employer's own application page; go straight there.
         try:

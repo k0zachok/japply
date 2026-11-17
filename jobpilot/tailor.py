@@ -77,6 +77,9 @@ COVER LETTER:
 - Austrian conventions. Greeting: use a named contact if the ad names one, otherwise "{greeting}".
 - Open with why this specific role/company, then 2–3 concrete matches between the job's main requirements and
   the CV (name the project or experience), then availability ({availability}), then a short closing.
+- Never mention skills, tools or experience the candidate lacks, never apologise or say "still learning";
+  write only about what the CV does show. Studies in progress are described as current, without start dates.
+- Do not repeat the CV line by line: pick the two experiences most relevant to THIS job and say what they prove.
 - End with "{closing}" and the name {name}. Separate paragraphs with a blank line.
 CV SUMMARY:
 - 2–3 sentences replacing the CV's summary, aimed at this job, using only facts from the CV.

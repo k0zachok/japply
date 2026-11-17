@@ -259,7 +259,7 @@ def serve(cfg, open_browser=True):
     port = int(cfg["app"].get("port", 8765))
     srv = ThreadingHTTPServer(("127.0.0.1", port), make_handler(cfg))
     url = f"http://127.0.0.1:{port}"
-    print(f"JobMan dashboard: {url}   (Ctrl+C to stop)")
+    print(f"JobMan dashboard: {url}   (Ctrl+C to stop)\n  running from {Path(__file__).resolve().parent.parent}")
     if open_browser:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()
     try:

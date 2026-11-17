@@ -276,6 +276,17 @@ def ats_jobs(ats: str, slug: str, company: str = "") -> list[Job]:
                            ", ".join(filter(None, [r.get("city"), r.get("country")])), r.get("url", ""),
                            strip_html(r.get("description")), to_iso(r.get("published_on") or r.get("created_at")),
                            bool(r.get("telecommuting")), r.get("employment_type", "")))
+    elif ats == "dvinci":                  # slug = the career site's host, e.g. jobs.wienerstadtwerke.at
+        for r in get_json(f"https://{slug}/jobPublication/list.json"):
+            o = r.get("jobOpening") or {}
+            loc = "; ".join(filter(None, (f"{(l.get('address') or {}).get('zipCode') or ''} "
+                                          f"{(l.get('address') or {}).get('city') or l.get('name') or ''}".strip()
+                                          for l in o.get("locations") or []))) or o.get("location") or ""
+            out.append(Job("dvinci", f"{slug}-{r['id']}", r.get("position", ""), (o.get("orgUnit") or {}).get("name") or name,
+                           loc, r.get("jobPublicationURL", ""),
+                           strip_html("\n".join(filter(None, [r.get("introduction"), r.get("tasks"), r.get("profile"), r.get("weOffer")]))),
+                           to_iso(o.get("createdDate")), False,
+                           " ".join(w.get("internalName", "") for w in o.get("workingTimes") or [])))
     elif ats == "recruitee":
         d = get_json(f"https://{slug}.recruitee.com/api/offers/")
         for r in d.get("offers", []):

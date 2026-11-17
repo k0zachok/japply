@@ -109,6 +109,7 @@ since_days = 14
 # Direct company career boards (public ATS APIs — freshest data, straight from employers).
 # Add more with:  python -m jobpilot discover "Company Name"
 # ats: greenhouse | lever | ashby | smartrecruiters | personio | workable | recruitee | dvinci (slug = site host)
+#      | workday (slug = "tenant.wdN/site") — smartrecruiters slug may end in "@at" for one country only
 # Example — discover writes these for you:
 # [[companies]]
 # name = "Some Company"

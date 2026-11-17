@@ -195,6 +195,15 @@ def _rss(url: str, src: str, remote: bool = False) -> Iterator[Job]:
 
 
 # ------------------------------------------------------------- company ATS boards
+def _post_json(url: str, body: dict) -> dict:
+    import json as _j, urllib.request
+    req = urllib.request.Request(url, data=_j.dumps(body).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", "Accept": "application/json",
+                                          "User-Agent": "Mozilla/5.0 (JobPilot personal job search)"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return _j.loads(r.read().decode("utf-8", "replace"))
+
+
 def ats_jobs(ats: str, slug: str, company: str = "") -> list[Job]:
     """Public career-page APIs. Returns [] if the board doesn't exist."""
     name = company or slug
@@ -231,9 +240,10 @@ def ats_jobs(ats: str, slug: str, company: str = "") -> list[Job]:
                            to_iso(r.get("publishedAt")), bool(r.get("isRemote")), r.get("employmentType", "")))
     elif ats == "smartrecruiters":
         offset = 0
+        slug, _, country = slug.partition("@")          # "BoschGroup@at" = only that country's jobs
         while True:
             d = get_json(f"https://api.smartrecruiters.com/v1/companies/{slug}/postings",
-                         params={"limit": 100, "offset": offset})
+                         params={"limit": 100, "offset": offset, **({"country": country} if country else {})})
             content = d.get("content", [])
             for r in content:
                 loc = r.get("location") or {}
@@ -244,6 +254,13 @@ def ats_jobs(ats: str, slug: str, company: str = "") -> list[Job]:
                                to_iso(r.get("releasedDate")), bool(loc.get("remote")),
                                (r.get("typeOfEmployment") or {}).get("label", ""),
                                extra={"detail": r.get("ref", "")}))
+                if country:                                   # small filtered set: fetch the job text right away
+                    try:
+                        secs = ((get_json(f"https://api.smartrecruiters.com/v1/companies/{slug}/postings/{r['id']}")
+                                 .get("jobAd") or {}).get("sections") or {})
+                        out[-1].description = "\n\n".join(strip_html((v or {}).get("text")) for v in secs.values())
+                    except Exception:
+                        pass
             offset += len(content)
             if not content or offset >= d.get("totalFound", 0):
                 break
@@ -276,6 +293,28 @@ def ats_jobs(ats: str, slug: str, company: str = "") -> list[Job]:
                            ", ".join(filter(None, [r.get("city"), r.get("country")])), r.get("url", ""),
                            strip_html(r.get("description")), to_iso(r.get("published_on") or r.get("created_at")),
                            bool(r.get("telecommuting")), r.get("employment_type", "")))
+    elif ats == "workday":                 # slug = "tenant.wdN/site", e.g. a1group.wd3/karriere_at
+        host, _, site = slug.partition("/")
+        tenant = host.split(".")[0]
+        api = f"https://{host}.myworkdayjobs.com/wday/cxs/{tenant}/{site}"
+        for offset in range(0, 200, 20):
+            d = _post_json(api + "/jobs", {"appliedFacets": {}, "limit": 20, "offset": offset, "searchText": ""})
+            posts = d.get("jobPostings") or []
+            for r in posts:
+                path = r.get("externalPath") or ""
+                if not path:
+                    continue
+                desc, posted = "", None
+                try:
+                    info = (get_json(api + path).get("jobPostingInfo") or {})
+                    desc, posted = strip_html(info.get("jobDescription")), to_iso(info.get("startDate"))
+                except Exception:
+                    pass
+                out.append(Job("workday", f"{tenant}-{path.rsplit('_', 1)[-1]}", r.get("title", ""), name,
+                               r.get("locationsText", ""), f"https://{host}.myworkdayjobs.com/{site}{path}", desc, posted))
+                time.sleep(0.8)
+            if len(posts) < 20:
+                break
     elif ats == "dvinci":                  # slug = the career site's host, e.g. jobs.wienerstadtwerke.at
         for r in get_json(f"https://{slug}/jobPublication/list.json"):
             o = r.get("jobOpening") or {}

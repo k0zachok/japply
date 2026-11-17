@@ -37,6 +37,20 @@
   #detail h2 { margin:0 0 4px; font-size:18px; }
   .actions { display:flex; flex-wrap:wrap; gap:6px; margin:12px 0; }
   .ai { background:#f7f9f8; border:1px solid var(--line); border-radius:9px; padding:10px 12px; margin:10px 0; }
+  .facts { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:8px; margin:12px 0; }
+  .fact { border:1px solid var(--line); border-radius:9px; padding:7px 10px; background:#fbfaf8; }
+  .fact small { display:block; color:var(--mute); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+  .fact b { font-weight:600; font-size:13.5px; } .fact.wide { grid-column:1 / -1; }
+  .fit { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:10px 0; }
+  .fit > div { border-radius:9px; padding:10px 12px; border:1px solid var(--line); }
+  .fit .yes { background:#eef7f1; } .fit .no { background:var(--warnbg); }
+  .fit h4 { margin:0 0 4px; font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+  .fit .yes h4 { color:var(--good); } .fit .no h4 { color:var(--warn); }
+  .fit ul { margin:0; padding-left:16px; } .fit p { margin:4px 0 0; font-size:13px; }
+  .verdict { display:flex; align-items:center; gap:10px; margin-top:10px; }
+  .verdict .score { width:48px; height:48px; font-size:18px; }
+  h3.sec { font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--mute); margin:16px 0 6px; }
+  @media (max-width: 900px) { .fit { grid-template-columns:1fr; } }
   .desc { white-space:pre-wrap; color:#333; font-size:13.5px; }
   .files a { display:inline-block; margin:2px 8px 2px 0; }
   .empty { color:var(--mute); padding:40px; text-align:center; }
@@ -144,16 +158,30 @@ function render() {
     </div>`).join("") : `<div class="empty">Nothing here yet.${tab === "new" ? " Lower the min score or click “Find new jobs”." : ""}</div>`;
 }
 
+function fact(k, v, wide) { return v ? `<div class="fact ${wide ? "wide" : ""}"><small>${k}</small><b>${esc(v)}</b></div>` : ""; }
+function list(a) { return Array.isArray(a) && a.length ? `<ul>${a.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""; }
 async function show(id) {
   sel = id; render();
   const j = await (await fetch("/api/job/" + encodeURIComponent(id))).json();
   const ai = j.ai;
   $("detail").innerHTML = `
     <h2>${esc(j.title)}</h2>
-    <div class="meta">${esc(j.company)} · ${esc(j.location)} ${j.salary ? "· " + esc(j.salary) : ""} · ${esc(j.source)} · ${age(j.posted_at || j.first_seen)}</div>
-    ${ai ? `<div class="ai"><b>AI: ${ai.score}/100 — ${esc(ai.verdict)}</b><br>${esc(ai.why)}${ai.gaps ? `<br><span style="color:var(--warn)">Gaps: ${esc(ai.gaps)}</span>` : ""}
-      <div class="meta">German needed: ${esc(ai.german_required)} · level: ${esc(ai.seniority)} · ad language: ${esc(ai.language)}</div></div>`
-      : `<div class="ai meta">Keyword score ${j.kw_score}. Set up an AI model in config.toml for a real fit assessment.</div>`}
+    <div class="meta">${esc(j.company)} · ${esc(j.source)} · ${age(j.posted_at || j.first_seen)}</div>
+    ${ai ? `<div class="verdict"><div class="score ${cls(ai.score)}">${ai.score}</div>
+      <div><b>${{apply:"Good fit", maybe:"Possible fit", skip:"Weak fit"}[ai.verdict] || esc(ai.verdict)}</b>
+      <div class="meta">AI estimate of your chance of an interview${ai.model ? " · " + esc(ai.model) : ""}</div></div></div>` : ""}
+    <div class="facts">
+      ${fact("Salary", j.salary_text || "not stated", j.salary_text && j.salary_text.length > 40)}
+      ${fact("Location", j.location)}
+      ${fact("Type", (j.types || "").split(",").filter(Boolean).map(t => label(TYPES, t)).join(", "))}
+      ${ai ? fact("Level", ai.seniority) + fact("German needed", ai.german_required) + fact("Ad language", {de:"German", en:"English"}[ai.language] || ai.language) : ""}
+    </div>
+    ${ai ? `<div class="fit">
+      <div class="yes"><h4>You match</h4>${list(ai.matched)}<p>${esc(ai.why || "")}</p></div>
+      <div class="no"><h4>Gaps</h4>${list(ai.missing)}<p>${esc(ai.gaps || (ai.missing && ai.missing.length ? "" : "None found."))}</p></div></div>`
+      : `<div class="ai meta">Keyword score ${j.kw_score}. Not yet assessed by the AI.</div>`}
+    ${(j.flags || "").split(",").filter(f => f && f !== "short description").length ? `<div class="tags">${(j.flags || "").split(",").filter(f => f && f !== "short description").map(f => `<span class="tag flag">${esc(f)}</span>`).join("")}</div>` : ""}
+    ${(j.skills_hit || []).length ? `<h3 class="sec">Your skills mentioned in the ad</h3><div class="tags">${j.skills_hit.map(k => `<span class="tag where">${esc(k)}</span>`).join("")}</div>` : ""}
     ${j.apply_note ? `<div class="ai" style="background:var(--warnbg)">${esc(j.apply_note)}</div>` : ""}
     ${["review","manual","new","saved","skipped"].includes(j.status) ? `<div class="actions">
       <button class="primary big" onclick="decide('${esc(j.id)}',true)">✓ ${j.status === "manual" ? "Retry auto-apply" : "Apply for me"} <kbd>A</kbd></button>
@@ -165,6 +193,7 @@ async function show(id) {
       ${["saved","applied","interview","offer","rejected","hidden"].map(s => `<button onclick="setStatus('${esc(j.id)}','${s}')" ${j.status === s ? "disabled" : ""}>${label(TABS, s)}</button>`).join("")}
     </div>
     <div class="files" id="files">${(j.files || []).map(f => `<a href="${f}" target="_blank">${f.split("/").pop()}</a>`).join("")}</div>
+    <h3 class="sec">Full posting</h3>
     <div class="desc">${esc(j.description || "No description in the feed — it is fetched from the job page when you write the letter.")}</div>`;
 }
 

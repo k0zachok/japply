@@ -5,6 +5,7 @@ import json
 import mimetypes
 import threading
 import traceback
+import re
 import urllib.parse
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -68,6 +69,13 @@ def make_handler(cfg):
                     if d.get("app_dir"):
                         p = Path(d["app_dir"])
                         d["files"] = [f"/files/{p.name}/{f.name}" for f in sorted(p.iterdir())] if p.exists() else []
+                    desc = (d.get("description") or "")
+                    low = desc.lower()
+                    d["skills_hit"] = [k for k in cfg["profile"].get("skills", [])
+                                       if re.search(rf"(?<![a-z]){re.escape(k)}(?![a-z])", low)][:14]
+                    m = re.search(r"[^.\n•]{0,90}(?:(?:€|EUR|Euro)\s?\d[\d.,']{2,}|\d[\d.,']{3,}\s?(?:€|EUR|Euro))[^.\n•]{0,70}", desc)
+                    d["salary_text"] = (d.get("salary") if not re.match(r"\s*0\b", d.get("salary") or "0") else "") or ((d.get("ai") or {}).get("salary") if isinstance(d.get("ai"), dict) else "") \
+                        or (" ".join(m.group(0).split()) if m else "")
                     return self._send(200, d)
                 if u.path == "/api/questions":
                     con = connect(cfg)

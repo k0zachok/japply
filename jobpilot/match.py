@@ -154,6 +154,9 @@ Return ONLY a JSON object:
   "verdict": "apply" | "maybe" | "skip",
   "why": "<max 2 sentences: strongest match points>",
   "gaps": "<max 2 sentences: missing requirements, or empty>",
+  "matched": [<up to 5 key requirements of the job the candidate meets, 2-6 words each>],
+  "missing": [<up to 5 key requirements the candidate does NOT meet, 2-6 words each>],
+  "salary": "<salary or pay stated in the ad, e.g. 'from EUR 3,200 gross/month', else empty>",
   "german_required": "none" | "basic" | "good" | "fluent",
   "language": "de" | "en",
   "seniority": "student" | "junior" | "mid" | "senior"}}
@@ -188,7 +191,7 @@ def ai_score_all(cfg: dict, con, llm, log=print) -> int:
             german=cfg["profile"].get("german_level"), english=cfg["profile"].get("english_level"),
             title=r["title"], company=r["company"], location=r["location"], desc=(r["description"] or "")[:6000])
         try:
-            res = llm.json(prompt)
+            res = llm.json(prompt, max_tokens=900)
             score = int(max(0, min(100, float(res.get("score", 0)))))
             res["model"] = llm.last_model
             # Cheap models score lower than strong ones, so a promising job gets a second opinion from the

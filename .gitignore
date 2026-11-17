@@ -13,3 +13,5 @@ cv.de.md
 
 *.db-wal
 *.db-shm
+cv_profile.txt
+config.toml.bak-*

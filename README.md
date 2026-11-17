@@ -143,3 +143,19 @@ A browser window opens with the form filled in; check it and click Submit yourse
 
     cp config.example.toml config.toml     # then fill in [profile] and [apply.answers]
     # put your CV next to it as cv.md (or a PDF, see cv_file)
+
+## Reply tracking
+
+Each run (and `python -m jobpilot inbox`) reads your inbox read-only and looks for mail about jobs you applied to:
+confirmations are noted on the job, rejections move it to **Rejected**, explicit invitations to **Interview**.
+It reads the application mailbox (`JOBPILOT_MAILBOX_PASSWORD`) and, if you set `JOBPILOT_EMAIL_PASSWORD`
+(a Gmail app password for the address you put on forms), that one too.
+
+## Speed and quota
+
+- `parallel = 2` under `[apply]`: browsers filling forms at the same time. Jobs on the same site never run in parallel.
+- Scoring uses a short profile of you (`cv_profile.txt`, rebuilt when the CV changes) instead of the whole CV.
+
+## Tests
+
+    python -m unittest discover tests

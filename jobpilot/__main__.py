@@ -9,6 +9,7 @@
   python -m jobpilot fetch [--only adzuna,arbeitnow]   fetch without scoring
   python -m jobpilot login SITE          sign in to a site once (e.g. join.com); the session is reused when applying
   python -m jobpilot apply [JOB_ID]      auto-apply to every queued job (or just one)
+  python -m jobpilot inbox               read your inbox for confirmations, invitations and rejections
   python -m jobpilot finish [JOB_ID]     fill the form in a visible window; you check it and click Submit
   python -m jobpilot rescore             re-apply filters/keyword scores to every job (after editing config)
 """
@@ -33,6 +34,7 @@ def main(argv=None):
     sub.add_parser("rescore")
     s = sub.add_parser("apply"); s.add_argument("job_id", nargs="?")
     s = sub.add_parser("finish"); s.add_argument("job_id", nargs="?")
+    sub.add_parser("inbox")
     s = sub.add_parser("login"); s.add_argument("site")
     s = sub.add_parser("list"); s.add_argument("--min", type=int, default=40); s.add_argument("--limit", type=int, default=30)
     s = sub.add_parser("tailor"); s.add_argument("job_id")
@@ -59,6 +61,9 @@ def main(argv=None):
         con.execute("UPDATE jobs SET kw_score=NULL")
         con.commit()
         pipeline.score(cfg, con)
+    elif a.cmd == "inbox":
+        from . import replies
+        print(replies.check(cfg, connect(cfg)))
     elif a.cmd == "login":
         from .apply import login
         login(cfg, a.site)

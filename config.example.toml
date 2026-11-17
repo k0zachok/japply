@@ -145,6 +145,7 @@ dry_run = false              # false = really submit. true = fill the form and s
 auto_min_score = 75          # AI says "apply", score >= this, no red flags  -> applied automatically
 review_min_score = 30        # between the two -> Review tab (you press Apply or Reject); below -> skipped
 max_per_run = 8                # at most this many applications per run (sized to the free Gemini quota)
+parallel = 2                 # browsers filling forms at the same time (1–4)
 headless = true              # false = watch the browser fill the forms
 tailor_cv = true             # false = always upload cv_pdf instead of a tailored CV
 cv_pdf = ""                  # your designed CV PDF (used when tailor_cv = false)

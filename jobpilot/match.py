@@ -138,7 +138,7 @@ def classify_all(cfg: dict, con, only_new: bool = True) -> dict:
 # ------------------------------------------------------------------ AI scoring
 SCORE_PROMPT = """You are a strict, honest career advisor in Vienna, Austria. Rate how well this candidate fits this job.
 
-CANDIDATE CV:
+CANDIDATE PROFILE:
 {cv}
 
 CANDIDATE PREFERENCES: wants {roles}. German level {german}, English {english}. Currently enrolled in a part-time
@@ -165,9 +165,38 @@ Return ONLY a JSON object:
 Be realistic: senior roles, fluent-German requirements or 3+ years experience mean a low score."""
 
 
-def ai_score_all(cfg: dict, con, llm, log=print) -> int:
-    from .core import load_cv_text
+PROFILE_PROMPT = """Condense this CV into a factual profile of at most 140 words for matching against job ads.
+Keep: degrees and current studies (with dates), total professional experience and what it was, the concrete
+technologies used, notable projects in a few words, languages with levels, location. No adjectives, no claims that
+are not in the CV. Plain text, no headings.
+
+{cv}"""
+
+
+def scoring_profile(cfg: dict, llm, log=print) -> str:
+    """A short profile used in place of the full CV when scoring (about a quarter of the tokens per job).
+    Written once by the AI and cached in cv_profile.txt until the CV changes."""
+    import hashlib
+    from .core import load_cv_text, resolve
     cv = load_cv_text(cfg)
+    f, h = resolve(cfg, "cv_profile.txt"), hashlib.sha1(cv.encode()).hexdigest()[:12]
+    if f.exists():
+        head, _, body = f.read_text(encoding="utf-8").partition("\n")
+        if head.strip() == h and len(body.split()) >= 40:
+            return body.strip()
+    try:
+        body = llm.chat(PROFILE_PROMPT.format(cv=cv[:6000]), max_tokens=400).strip()
+        if 40 <= len(body.split()) <= 220:
+            f.write_text(h + "\n" + body, encoding="utf-8")
+            log("  wrote a short profile for scoring (cv_profile.txt)")
+            return body
+    except Exception:
+        pass
+    return cv[:6000]
+
+
+def ai_score_all(cfg: dict, con, llm, log=print) -> int:
+    cv = scoring_profile(cfg, llm, log)
     lc = cfg["llm"]
     rows = con.execute(
         "SELECT * FROM jobs WHERE status IN ('new','saved') AND ai_score IS NULL AND (kw_score >= ? "
@@ -191,7 +220,7 @@ def ai_score_all(cfg: dict, con, llm, log=print) -> int:
         prompt = SCORE_PROMPT.format(taste=taste, 
             cv=cv[:6000], roles=", ".join(cfg["profile"]["target_roles"][:10]),
             german=cfg["profile"].get("german_level"), english=cfg["profile"].get("english_level"),
-            title=r["title"], company=r["company"], location=r["location"], desc=(r["description"] or "")[:6000])
+            title=r["title"], company=r["company"], location=r["location"], desc=(r["description"] or "")[:4500])
         try:
             res = llm.json(prompt, max_tokens=900)
             score = int(max(0, min(100, float(res.get("score", 0)))))

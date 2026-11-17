@@ -73,6 +73,11 @@ def score(cfg: dict, con, log=print) -> None:
 
 def run(cfg: dict, log=print) -> None:
     con = connect(cfg)
+    try:                                    # what did employers answer since the last run?
+        from . import replies
+        replies.check(cfg, con, log=log)
+    except Exception as e:
+        log(f"  inbox check failed: {str(e)[:120]}")
     log("Fetching jobs…")
     fetch(cfg, con, log=log)
     log("Scoring…")

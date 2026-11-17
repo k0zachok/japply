@@ -1115,7 +1115,7 @@ def apply_queued(cfg: dict, con, log=print, ids: list[str] | None = None, hand: 
     if ids:
         rows = [i for i in rows if i in ids]
     stats = {"applied": 0, "manual": 0}
-    hosts = _host_stats(con)
+    hosts, host_of = _host_stats(con), {}
     if not ids and not hand:
         # Fill the run's slots with jobs that can actually go through: a site already known to need an account or
         # to block automation goes straight to "Needs you" without costing a slot (or any AI quota).
@@ -1137,6 +1137,7 @@ def apply_queued(cfg: dict, con, log=print, ids: list[str] | None = None, hand: 
                 stats["manual"] += 1
                 continue
             keep.append(jid)
+            host_of[jid] = host
         rows = keep
     else:
         rows = rows[: int(a.get("max_per_run", 15))]
@@ -1147,38 +1148,90 @@ def apply_queued(cfg: dict, con, log=print, ids: list[str] | None = None, hand: 
     except ImportError:
         log("  ⚠ auto-apply needs Playwright:  pip install playwright && playwright install chromium")
         return stats
-    llm = LLM(cfg)
     log(f"Applying to {len(rows)} job(s)" + (" — you click Submit in the window" if hand else
         " — DRY RUN, nothing is submitted" if a.get("dry_run", True) else "") + "…")
-    with sync_playwright() as pw:
-        pdf_browser = pw.chromium.launch(headless=True)
-        browser = open_profile(cfg, pw, headless=False if hand else bool(a.get("headless", True)))
-        for i, jid in enumerate(rows, 1):
-            job = pipeline.job_row(con, jid)
+
+    # Several browsers work at once. Jobs on the same site stay in one browser (no parallel hits on one employer),
+    # and sites you are signed in to go to the first browser, which holds the saved profile.
+    import threading
+    workers = 1 if hand or len(rows) < 2 else max(1, min(int(a.get("parallel", 2)), 4, len(rows)))
+    mine, groups = logged_in_hosts(cfg), {}
+    for jid in rows:
+        try:
+            h = host_of.get(jid) or urllib.parse.urlparse(_target_url(pipeline.job_row(con, jid))).netloc.lower()
+        except Exception:
+            h = jid
+        groups.setdefault(h, []).append(jid)
+    buckets = [[] for _ in range(workers)]
+    for h, jids in sorted(groups.items(), key=lambda kv: -len(kv[1])):
+        signed_in = any(m in h or h in m for m in mine)
+        target = buckets[0] if signed_in else min(buckets, key=len)
+        target.extend(jids)
+    lock, stop, done = threading.Lock(), threading.Event(), [0]
+
+    def work(n: int, jids: list[str]) -> None:
+        if not jids:
+            return
+        wcon, llm = (con if workers == 1 else __import__("jobpilot.core", fromlist=["connect"]).connect(cfg)), LLM(cfg)
+        with sync_playwright() as pw:
+            pdf_browser = pw.chromium.launch(headless=True)
+            headless = False if hand else bool(a.get("headless", True))
+            if n == 0:
+                ctx, extra = open_profile(cfg, pw, headless=headless), None
+            else:                                   # further browsers: fresh window with the saved sign-in cookies
+                extra = pw.chromium.launch(headless=headless)
+                sf = profile_dir(cfg) / "jobpilot_state.json"
+                ctx = extra.new_context(locale="en-GB", viewport={"width": 1280, "height": 1600},
+                                        **({"storage_state": str(sf)} if sf.exists() else {}))
             try:
-                status, note = apply_one(cfg, con, llm, job, browser, pdf_browser, log, hand)
-            except NeedsYou as e:
-                status, note = "manual", str(e)
-            except HttpError as e:
-                if e.status in (429, 503) and e.url == "llm":
-                    log(f"  ⚠ AI quota used up for today — {len(rows) - i + 1} job(s) stay queued for the next run")
-                    break
-                status, note = "manual", f"auto-apply failed: {e}"
-            except (ConnectionError, OSError) as e:
-                if "11434" in str(e) or "refused" in str(e).lower():
-                    log(f"  ⚠ AI model not reachable ({str(e)[:80]}) — {len(rows) - i + 1} job(s) stay queued")
-                    break
-                status, note = "manual", f"auto-apply failed: {str(e)[:200]}"
-            except Exception as e:
-                status, note = "manual", f"auto-apply failed: {str(e).splitlines()[0][:200]}"
-            con.execute("UPDATE jobs SET status=?, apply_note=?, applied_at=? WHERE id=?",
-                        (status, note, now_iso() if status == "applied" else None, jid))
-            con.commit()
-            _host_record(con, job.get("_host") or "", status, note)
-            stats[status] += 1
-            log(f"  [{i}/{len(rows)}] {'✓' if status == 'applied' else '→ needs you'}  {job['title'][:50]} — "
-                f"{(job.get('company') or '')[:25]}: {note}")
-        browser.close()
-        pdf_browser.close()
+                for jid in jids:
+                    if stop.is_set():
+                        break
+                    job = pipeline.job_row(wcon, jid)
+                    try:
+                        status, note = apply_one(cfg, wcon, llm, job, ctx, pdf_browser, log, hand)
+                    except NeedsYou as e:
+                        status, note = "manual", str(e)
+                    except HttpError as e:
+                        if e.status in (429, 503) and e.url == "llm":
+                            if not stop.is_set():
+                                log("  ⚠ AI quota used up for today — the remaining job(s) stay queued for the next run")
+                            stop.set()
+                            break
+                        status, note = "manual", f"auto-apply failed: {e}"
+                    except (ConnectionError, OSError) as e:
+                        if "11434" in str(e) or "refused" in str(e).lower():
+                            log(f"  ⚠ AI model not reachable ({str(e)[:80]}) — the remaining job(s) stay queued")
+                            stop.set()
+                            break
+                        status, note = "manual", f"auto-apply failed: {str(e)[:200]}"
+                    except Exception as e:
+                        status, note = "manual", f"auto-apply failed: {str(e).splitlines()[0][:200]}"
+                    with lock:
+                        wcon.execute("UPDATE jobs SET status=?, apply_note=?, applied_at=? WHERE id=?",
+                                     (status, note, now_iso() if status == "applied" else None, jid))
+                        wcon.commit()
+                        _host_record(wcon, job.get("_host") or "", status, note)
+                        stats[status] += 1
+                        done[0] += 1
+                        log(f"  [{done[0]}/{len(rows)}] {'✓' if status == 'applied' else '→ needs you'}  {job['title'][:50]} — "
+                            f"{(job.get('company') or '')[:25]}: {note}")
+            finally:
+                for x in (ctx, extra, pdf_browser):
+                    try:
+                        x and x.close()
+                    except Exception:
+                        pass
+        if wcon is not con:
+            wcon.close()
+
+    if workers == 1:
+        work(0, buckets[0])
+    else:
+        threads = [threading.Thread(target=work, args=(n, b), daemon=True) for n, b in enumerate(buckets)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
     log(f"  {stats['applied']} applied, {stats['manual']} need you")
     return stats

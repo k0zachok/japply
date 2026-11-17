@@ -25,7 +25,10 @@ APPLY_WORDS = re.compile(r"apply|bewerb|application|postuler|solliciteer", re.I)
 BOARD_HOSTS = ("jobicy.com", "himalayas.app", "remoteok.com", "remotive.com", "weworkremotely.com", "arbeitnow.")
 APPLY_START = re.compile(r"^\W*(apply|jetzt bewerben|bewerben|zur bewerbung|online bewerben|i'?m interested|"
                          r"ich bin interessiert|schnellbewerbung|einfach bewerben|weiter zur bewerbung|"
-                         r"start (your )?application|submit (an? )?application)", re.I)
+                         r"start (your )?application|submit (an? )?application|bewerbungsformular|zum bewerbungsformular|"
+                         r"direkt bewerben|hier bewerben|online[- ]bewerbung|application form|fill (in|out) |"
+                         r"(continue|apply|bewerben|weiter) (as (a )?guest|als gast|without (an? )?(account|registration)|"
+                         r"ohne (konto|registrierung|account|anmeldung))|manuell bewerben|apply manually)", re.I)
 NEXT_BTN = re.compile(r"^\W*(continue|next|weiter|fortfahren|nächster schritt|save and continue|speichern und weiter|"
                       r"review( your)? application|bewerbung prüfen)", re.I)
 SUBMIT_BTN = re.compile(r"submit|absenden|abschicken|send application|bewerbung (ab)?senden|^\W*(apply|jetzt bewerben|"
@@ -40,12 +43,18 @@ CAPTCHA = ("iframe[src*='hcaptcha.com']", "iframe[src*='challenges.cloudflare.co
            "iframe[src*='recaptcha/api2/anchor']:not([src*='size=invisible'])", "iframe[src*='captcha-delivery.com']")
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]*[a-z]{2,}", re.I)
 
+PERSONAL = re.compile(r"anrede|salutation|gender|geschlecht|birth|geburt|geboren|nationalit|staatsangeh|staatsbürger|"
+                      r"citizenship|religio|konfession|disab|behinder|marital|familienstand|ethnic|race\b|veteran|"
+                      r"sozialversicherung|social security|passport|reisepass|iban|pronoun", re.I)
+
 # label/name pattern -> key in [apply.answers] (or a special value). First match wins.
 RULES = [
     (r"first and last name|full name|legal name|vor- und nachname", "full_name"),
     (r"first.?name|vorname|given.?name|prénom", "first_name"),
     (r"last.?name|nachname|surname|family.?name|familienname", "last_name"),
     (r"e-?mail", "email"),
+    (r"birth|geburt|\bdob\b|geboren", "birth_date"),
+    (r"anrede|salutation|\bgender\b|geschlecht|\btitle \(mr", "salutation"),
     (r"phone|telefon|mobile|handy|mobil", "phone"),
     (r"linkedin", "linkedin"),
     (r"github|gitlab", "github"),
@@ -91,9 +100,12 @@ FIELDS_JS = r"""
     if (['hidden', 'submit', 'button', 'search', 'image', 'reset', 'password'].includes(type)) continue;
     if (e.closest('header, nav, footer, [role=search], [id*=cookie], [class*=cookie], [id*=consent-banner], .fc-consent-root, [class*="fc-"], ' +
                   '#onetrust-consent-sdk, #usercentrics-root, #CybotCookiebotDialog, [class*=newsletter], [id*=newsletter]')) continue;
-    if (type !== 'file' && !vis(e) && !['radio', 'checkbox'].includes(type)) continue;
+    // a native <select> hidden behind a styled widget (select2, chosen, tom-select…) is still the real field
+    const widget = e.tagName === 'SELECT' && e.name && e.options.length > 1 &&
+                   /select2-hidden|chosen|selectized|tomselected|ts-hidden|visually-hidden|sr-only/.test(e.className);
+    if (!widget && type !== 'file' && !vis(e) && !['radio', 'checkbox'].includes(type)) continue;
     if (e.disabled || e.readOnly && e.getAttribute('role') !== 'combobox') continue;
-    if (e.getAttribute('aria-hidden') === 'true' || (e.tabIndex === -1 && !e.name && !['file', 'radio', 'checkbox'].includes(type))) continue;
+    if (!widget && e.getAttribute('aria-hidden') === 'true' || (e.tabIndex === -1 && !e.name && !['file', 'radio', 'checkbox'].includes(type))) continue;
     const choice = type === 'radio' || type === 'checkbox';
     const o = own(e), g = group(e, o);
     const q = choice ? (g || o) : (o || g);
@@ -141,7 +153,8 @@ FIELDS_JS = r"""
 LOGIN_PAGES = {"join.com": "https://join.com/auth/login/candidate"}
 
 
-ALT_NAMES = {"austria": ["Österreich"], "vienna": ["Wien"], "germany": ["Deutschland"], "english": ["Englisch"],
+ALT_NAMES = {"herr": ["Mr", "Mr.", "Male", "Männlich", "Mann"], "frau": ["Ms", "Ms.", "Mrs", "Female", "Weiblich"],
+             "mr": ["Herr", "Male", "Männlich"], "ms": ["Frau", "Female", "Weiblich"], "austria": ["Österreich"], "vienna": ["Wien"], "germany": ["Deutschland"], "english": ["Englisch"],
              "german": ["Deutsch"], "ukrainian": ["Ukrainisch"], "russian": ["Russisch"], "ukraine": ["Ukraine"]}
 LOGIN_CHECK = {"join.com": ("https://join.com/talent/home", "/auth/login")}   # host -> (page, login-URL marker)
 
@@ -234,14 +247,19 @@ def _known(cfg: dict, con, label: str, name: str, choice: bool = False) -> str |
                     (norm(label),)).fetchone()
     if r:
         return r["answer"]
-    if choice:                      # yes/no and multiple-choice questions are never answered by keyword rules
-        return None
     ans = dict(cfg.get("apply", {}).get("answers", {}))
     ans["full_name"] = f"{ans.get('first_name', '')} {ans.get('last_name', '')}".strip()
     hay = f"{label} | {name}".lower()
     for pat, key in RULES:
         if re.search(pat, hay):
-            return "@letter" if key == "letter" else (ans.get(key) or None)
+            if choice and key not in ("salutation", "country"):
+                return None         # yes/no and multiple-choice questions are never answered by keyword rules,
+            val = ans.get(key) or None      # except plain personal facts (salutation, country)
+            if key == "birth_date" and val:
+                m = re.match(r"(\d{4})-(\d{2})-(\d{2})$", val.strip())
+                if m:
+                    val = f"{m.group(3)}.{m.group(2)}.{m.group(1)}"      # Austrian forms: TT.MM.JJJJ
+            return "@letter" if key == "letter" else val
     return None
 
 
@@ -292,9 +310,12 @@ def _ask_llm(cfg, llm, job, questions: list[dict]) -> dict:
 # ------------------------------------------------------------------ browser steps
 def _dismiss_cookies(page):
     for pat in (r"^(reject|decline|deny|ablehnen|alle ablehnen|optionale cookies ablehnen|nur notwendige|"
-                r"only (necessary|essential)|necessary only)", ):
+                r"only (necessary|essential)|necessary only|nichts akzeptieren|nur (erforderliche|essenzielle|notwendige)|"
+                r"notwendige cookies|continue without accepting|ohne (zustimmung|einwilligung)|refuse|"
+                r"alle optionalen ablehnen|use necessary cookies only)", ):
         try:
-            b = page.get_by_role("button", name=re.compile(pat, re.I)).first
+            b = page.get_by_role("button", name=re.compile(pat, re.I)).or_(
+                page.get_by_role("link", name=re.compile(pat, re.I))).first
             if b.is_visible(timeout=800):
                 b.click(timeout=1500)
                 return
@@ -528,8 +549,9 @@ def _fill(cfg, con, llm, job, fr, fields, cv_pdf: Path, letter_pdf: Path, letter
 
     # ---- everything the rules couldn't answer: ask the model, never guess
     if unknown:
+        # Personal facts only the candidate knows are never sent to the model: it would have to guess.
         qs = [{"i": str(f["i"]), "question": f["label"] or f["name"], **({"options": f["options"]} if f["options"] else {})}
-              for f in unknown]
+              for f in unknown if not PERSONAL.search(f"{f['label']} {f['name']}")]
         got = _ask_llm(cfg, llm, job, qs)
         missing = []
         for f in unknown:
@@ -590,7 +612,12 @@ def _set(fr, f, el, ans: str):
         pick = _pick_option(f["options"], ans)
         if not pick:
             raise NeedsYou(f"no option matching “{ans[:40]}” for “{f['label'][:60]}”")
-        el.select_option(label=pick)
+        try:
+            el.select_option(label=pick, timeout=3000)
+        except Exception:                                  # hidden behind a widget: set it directly
+            el.evaluate("""(e, label) => { const o = [...e.options].find(o => o.text.trim() === label.trim());
+                if (o) { e.value = o.value; e.dispatchEvent(new Event('input', {bubbles: true}));
+                         e.dispatchEvent(new Event('change', {bubbles: true})); } }""", pick)
     elif f["combo"] and f.get("options"):
         el.click()
         fr.page.wait_for_timeout(400)
@@ -608,6 +635,9 @@ def _set(fr, f, el, ans: str):
         el.press("Escape")
         if f["required"]:
             raise NeedsYou(f"no option matching “{ans[:40]}” for “{f['label'][:60]}”")
+    elif f["type"] == "date":
+        m = re.match(r"(\d{1,2})[./](\d{1,2})[./](\d{4})$", ans.strip())
+        el.fill(f"{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}" if m else ans)
     elif f["type"] == "number":
         m = re.search(r"\d[\d.,' ]*", ans)
         digits = re.sub(r"\D", "", m.group(0)) if m else ""
@@ -659,6 +689,38 @@ def _verify_by_mail(cfg, llm, page, fr, since: float, log) -> bool:
     return True
 
 
+FORM_ERROR = re.compile(r"enthält fehler|contains? errors?|pflichtfeld|required field|field is required|"
+                        r"bitte (füllen|korrigieren|überprüfen|wählen)|please (fill|correct|check|select|complete)|"
+                        r"ungültig|invalid|fehlerhaft|muss ausgefüllt|darf nicht leer", re.I)
+
+
+def _texts(page) -> list[str]:
+    out = []
+    for f in page.frames:
+        try:
+            out.append(f.inner_text("body", timeout=2000)[:8000])
+        except Exception:
+            pass
+    return out
+
+
+def _confirmed(page, before: set[str], fr) -> bool:
+    """A real confirmation: success wording that was NOT on the page before the click (form intros often say
+    "thank you for your interest"), with no error message and no field marked invalid."""
+    texts = _texts(page)
+    new = {m.group(0).lower() for t in texts for m in SUCCESS.finditer(t)} - before
+    if not new:
+        return False
+    if any(FORM_ERROR.search(t) for t in texts):
+        return False
+    try:
+        if sum(f.locator("[aria-invalid=true]:visible, .has-error:visible, .is-invalid:visible").count() for f in page.frames):
+            return False
+    except Exception:
+        pass
+    return True
+
+
 def _submit(cfg, llm, page, fr, log) -> str:
     for sel in CAPTCHA:
         if any(page.locator(sel).nth(i).is_visible() for i in range(page.locator(sel).count())):
@@ -669,25 +731,25 @@ def _submit(cfg, llm, page, fr, log) -> str:
         btn = cand.last if cand.count() else None
     if btn is None:
         raise NeedsYou("couldn't find the submit button")
+    before = {m.group(0).lower() for t in _texts(page) for m in SUCCESS.finditer(t)}
+    had_error = any(FORM_ERROR.search(t) for t in _texts(page))
     t0 = time.time()
     btn.click(timeout=8000)
     verified = False
     for _ in range(12):
         page.wait_for_timeout(1500)
-        for f in page.frames:
-            try:
-                if SUCCESS.search(f.inner_text("body", timeout=2000)[:6000]):
-                    return "confirmed"
-            except Exception:
-                pass
+        if _confirmed(page, before, fr):
+            return "confirmed"
         if not verified and _ >= 1:
             verified = _verify_by_mail(cfg, llm, page, fr, t0, log)
     for sel in CAPTCHA:
         if page.locator(sel).count() and page.locator(sel).first.is_visible():
             raise NeedsYou("a CAPTCHA appeared on submit — finish it yourself")
-    bad = fr.locator("[aria-invalid=true]:visible").count()
-    raise NeedsYou(f"the form rejected the submission ({bad} field(s) marked invalid)" if bad
-                   else "submitted, but no confirmation appeared — check the screenshot / your e-mail")
+    bad = sum(f.locator("[aria-invalid=true]:visible, .has-error:visible, .is-invalid:visible").count() for f in page.frames)
+    errs = [m.group(0) for t in _texts(page) for m in FORM_ERROR.finditer(t)]
+    if bad or (errs and not had_error):
+        raise NeedsYou(f"the form rejected the submission ({bad or len(errs)} field(s) missing or invalid — see form_problem.png)")
+    raise NeedsYou("submitted, but no confirmation appeared — check the screenshot / your e-mail")
 
 
 def _wait_user(page, log) -> None:
@@ -753,7 +815,7 @@ def _send_email(cfg, job, to: str, letter: str, attachments: list[Path], folder:
 def _target_url(job: dict) -> str:
     u = job["url"]
     if job["source"] == "dvinci":
-        return re.sub(r"(/jobs/\d+)(/.*)?$", r"\1/apply", u)
+        return re.sub(r"(/jobs/\d+)(/.*)?$", r"\1/form", u)     # skips the "form or CV upload?" choice page
     if job["source"] == "karriere":
         # Most karriere.at postings link out to the employer's own application page; go straight there.
         try:
@@ -904,11 +966,13 @@ def apply_one(cfg, con, llm, job: dict, ctx, pdf_browser, log=print, hand: bool 
             _wait_user(page, log)
             page.screenshot(path=str(folder / "form_submitted.png"), full_page=True)
             return "applied", f"filled automatically ({n} fields), submitted by you"
+        job["_host"] = urllib.parse.urlparse(page.url).netloc.lower()
         _submit(cfg, llm, page, fr, log)
         page.screenshot(path=str(folder / "form_submitted.png"), full_page=True)
         return "applied", f"applied automatically ({n} fields)"
     except NeedsYou:
         try:
+            job["_host"] = urllib.parse.urlparse(page.url).netloc.lower()
             page.screenshot(path=str(folder / "form_problem.png"), full_page=True)
             (folder / "form_problem.html").write_text(page.content(), encoding="utf-8")   # for debugging the form
         except Exception:
@@ -922,6 +986,37 @@ def apply_one(cfg, con, llm, job: dict, ctx, pdf_browser, log=print, hand: bool 
                 pass
 
 
+WALL_NOTE = re.compile(r"needs an account|create an account|sign in before|blocks automated|CAPTCHA|"
+                       r"only lets you apply with an account", re.I)
+SOFT_NOTE = re.compile(r"no confirmation appeared|couldn't find an application form", re.I)
+
+
+def _host_stats(con) -> dict:
+    con.execute("CREATE TABLE IF NOT EXISTS hosts (host TEXT PRIMARY KEY, ok INTEGER DEFAULT 0, wall INTEGER DEFAULT 0, "
+                "soft INTEGER DEFAULT 0, reason TEXT, last TEXT)")
+    return {r["host"]: dict(r) for r in con.execute("SELECT * FROM hosts")}
+
+
+def _host_record(con, host: str, status: str, note: str) -> None:
+    if not host:
+        return
+    col = "ok" if status == "applied" else "wall" if WALL_NOTE.search(note) else "soft" if SOFT_NOTE.search(note) else None
+    if col is None:
+        return
+    con.execute("INSERT OR IGNORE INTO hosts (host) VALUES (?)", (host,))
+    con.execute(f"UPDATE hosts SET {col} = {col} + 1, reason = ?, last = ? WHERE host = ?",
+                (None if col == "ok" else note[:200], now_iso(), host))
+    con.commit()
+
+
+def _known_wall(stats: dict, host: str) -> str | None:
+    """A site that has never worked and has stopped us before (account wall, bot check): don't spend a slot on it."""
+    h = stats.get(host)
+    if h and not h["ok"] and (h["wall"] >= 1 or h["soft"] >= 2):
+        return h["reason"] or "this site stopped earlier attempts"
+    return None
+
+
 def apply_queued(cfg: dict, con, log=print, ids: list[str] | None = None, hand: bool = False) -> dict:
     a = cfg.get("apply", {})
     q = "SELECT id FROM jobs WHERE status='queued'"
@@ -931,8 +1026,31 @@ def apply_queued(cfg: dict, con, log=print, ids: list[str] | None = None, hand: 
     rows = [r["id"] for r in con.execute(q + " ORDER BY COALESCE(ai_score, kw_score) DESC").fetchall()]
     if ids:
         rows = [i for i in rows if i in ids]
-    rows = rows[: int(a.get("max_per_run", 15))]
     stats = {"applied": 0, "manual": 0}
+    hosts = _host_stats(con)
+    if not ids and not hand:
+        # Fill the run's slots with jobs that can actually go through: a site already known to need an account or
+        # to block automation goes straight to "Needs you" without costing a slot (or any AI quota).
+        keep, limit = [], int(a.get("max_per_run", 15))
+        for jid in rows:
+            if len(keep) >= limit:
+                break
+            job = pipeline.job_row(con, jid)
+            try:
+                host = urllib.parse.urlparse(_target_url(job)).netloc.lower()
+            except Exception:
+                host = ""
+            why = _known_wall(hosts, host)
+            if why:
+                con.execute("UPDATE jobs SET status='manual', apply_note=? WHERE id=?",
+                            (f"{host}: {why} (known from earlier attempts — not retried)", jid))
+                con.commit()
+                stats["manual"] += 1
+                continue
+            keep.append(jid)
+        rows = keep
+    else:
+        rows = rows[: int(a.get("max_per_run", 15))]
     if not rows:
         return stats
     try:
@@ -967,6 +1085,7 @@ def apply_queued(cfg: dict, con, log=print, ids: list[str] | None = None, hand: 
             con.execute("UPDATE jobs SET status=?, apply_note=?, applied_at=? WHERE id=?",
                         (status, note, now_iso() if status == "applied" else None, jid))
             con.commit()
+            _host_record(con, job.get("_host") or "", status, note)
             stats[status] += 1
             log(f"  [{i}/{len(rows)}] {'✓' if status == 'applied' else '→ needs you'}  {job['title'][:50]} — "
                 f"{(job.get('company') or '')[:25]}: {note}")

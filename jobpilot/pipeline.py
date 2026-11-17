@@ -35,6 +35,7 @@ def fetch(cfg: dict, con, only: list[str] | None = None, log=print) -> dict:
                     continue
                 fetched += 1
                 is_new = upsert(con, j)
+                con.commit()          # never hold the write lock across the next (slow) network request
                 new += is_new
                 known_run = 0 if is_new else known_run + 1
                 if name == "arbeitnow" and known_run >= 250:      # newest-first feed: the rest is already in the DB

@@ -194,8 +194,12 @@ CREATE TABLE IF NOT EXISTS answers (
 
 
 def connect(cfg: dict) -> sqlite3.Connection:
-    con = sqlite3.connect(resolve(cfg, cfg["app"]["db_file"]), check_same_thread=False)
+    # The dashboard, the applier and a fetch/score run may all write at once: wait for a lock instead of failing,
+    # and use WAL so readers never block writers.
+    con = sqlite3.connect(resolve(cfg, cfg["app"]["db_file"]), check_same_thread=False, timeout=60)
     con.row_factory = sqlite3.Row
+    con.execute("PRAGMA journal_mode=WAL")
+    con.execute("PRAGMA busy_timeout=60000")
     con.executescript(SCHEMA)
     have = {r["name"] for r in con.execute("PRAGMA table_info(jobs)")}
     for col in ("apply_note", "applied_at"):

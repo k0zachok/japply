@@ -10,3 +10,6 @@ cv.md
 cv.de.md
 *.pdf
 .DS_Store
+
+*.db-wal
+*.db-shm

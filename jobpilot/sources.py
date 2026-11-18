@@ -324,6 +324,24 @@ def ats_jobs(ats: str, slug: str, company: str = "", known: frozenset = frozense
                 time.sleep(0.8)
             if len(posts) < 20:
                 break
+    elif ats == "onlyfy":                  # slug = the subdomain of <slug>.onlyfy.jobs
+        from .importer import fetch_job
+        base = f"https://{slug}.onlyfy.jobs"
+        page = http(base + "/en", headers={"Accept": "text/html"})
+        for jid, inner in dict.fromkeys(re.findall(r'<a[^>]*href="/(?:en|de)/job/([a-z0-9]{10,})"[^>]*>(.*?)</a>', page, re.S)):
+            title = re.sub(r"\s+", " ", strip_html(inner)).strip()
+            title = re.split(r"\s+(?:Vienna|Wien|Graz|Linz|Salzburg|Innsbruck|Klagenfurt)\b", title)[0].strip()
+            url = f"{base}/en/job/{jid}"
+            j = Job("onlyfy", f"{slug}-{jid}", title, name, "", url)
+            if f"onlyfy:{slug}-{jid}" not in known:      # new job: read its page once for location and text
+                try:
+                    full = fetch_job(url)
+                    j.title, j.location, j.description = full.title or title, full.location, full.description
+                    j.posted_at, j.employment_hint = full.posted_at, full.employment_hint
+                except Exception:
+                    pass
+                time.sleep(0.3)
+            out.append(j)
     elif ats == "dvinci":                  # slug = the career site's host, e.g. jobs.wienerstadtwerke.at
         for r in get_json(f"https://{slug}/jobPublication/list.json"):
             o = r.get("jobOpening") or {}
@@ -357,7 +375,7 @@ def companies(cfg) -> Iterator[Job]:
     try:
         from .core import connect
         con = connect(cfg)
-        known = frozenset(r[0] for r in con.execute("SELECT id FROM jobs WHERE source IN ('workday', 'smartrecruiters')"))
+        known = frozenset(r[0] for r in con.execute("SELECT id FROM jobs WHERE source IN ('workday', 'smartrecruiters', 'onlyfy')"))
         con.close()
     except Exception:
         known = frozenset()

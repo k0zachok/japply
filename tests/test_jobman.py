@@ -194,3 +194,39 @@ class Names(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NewForms(unittest.TestCase):
+    def test_nationality_options(self):
+        self.assertEqual(apply._pick_option(["Österreich", "Andere Nationalität"], "Ukrainian"), "Andere Nationalität")
+        self.assertEqual(apply._pick_option(["Österreich", "Andere Nationalität"], "Österreich"), "Österreich")
+
+    def test_taken_down_postings(self):
+        for t in ("Job nicht gefunden | Erste Group", "This position is no longer available", "Die Stelle ist leider nicht mehr verfügbar"):
+            self.assertTrue(apply.GONE.search(t), t)
+        self.assertFalse(apply.GONE.search("Data Engineer (m/w/d) — jetzt bewerben"))
+
+    def test_date_field_gets_a_date(self):
+        cfg, con = db()
+        cfg["apply"]["answers"]["earliest_start"] = "As soon as possible"
+        v = apply._known(cfg, con, "Verfügbarkeit ab: (TT.MM.JJJJ)", "")
+        self.assertRegex(v, r"^\d{2}\.\d{2}\.\d{4}$")
+        self.assertEqual(apply._known(cfg, con, "Earliest start", ""), "As soon as possible")
+
+    def test_address_line_2_stays_empty(self):
+        cfg, con = db()
+        cfg["apply"]["answers"]["address"] = "Teststraße 1"
+        self.assertEqual(apply._known(cfg, con, "Anschrift Zeile 1", ""), "Teststraße 1")
+        self.assertIsNone(apply._known(cfg, con, "Anschrift Zeile 2", ""))
+
+
+class Signup(unittest.TestCase):
+    def test_off_by_default(self):
+        from jobpilot import signup
+        self.assertFalse(signup.enabled(CFG))
+
+    def test_register_buttons(self):
+        from jobpilot import signup
+        for t in ("Create a new applicant profile", "Jetzt registrieren", "Konto erstellen", "Sign up"):
+            self.assertTrue(signup.REGISTER.search(t), t)
+        self.assertFalse(signup.REGISTER.search("Log in"))

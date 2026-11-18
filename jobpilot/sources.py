@@ -327,8 +327,15 @@ def ats_jobs(ats: str, slug: str, company: str = "", known: frozenset = frozense
     elif ats == "onlyfy":                  # slug = the subdomain of <slug>.onlyfy.jobs
         from .importer import fetch_job
         base = f"https://{slug}.onlyfy.jobs"
-        page = http(base + "/en", headers={"Accept": "text/html"})
-        for jid, inner in dict.fromkeys(re.findall(r'<a[^>]*href="/(?:en|de)/job/([a-z0-9]{10,})"[^>]*>(.*?)</a>', page, re.S)):
+        found = {}
+        for n in range(1, 21):                      # 10 jobs per page
+            page = http(base + "/en" + (f"?page={n}" if n > 1 else ""), headers={"Accept": "text/html"})
+            got = re.findall(r'<a[^>]*href="/(?:en|de)/job/([a-z0-9]{10,})"[^>]*>(.*?)</a>', page, re.S)
+            new = [g for g in got if g[0] not in found]
+            found.update(new)
+            if len(got) < 10 or not new:
+                break
+        for jid, inner in found.items():
             title = re.sub(r"\s+", " ", strip_html(inner)).strip()
             title = re.split(r"\s+(?:Vienna|Wien|Graz|Linz|Salzburg|Innsbruck|Klagenfurt)\b", title)[0].strip()
             url = f"{base}/en/job/{jid}"
@@ -380,8 +387,20 @@ def companies(cfg) -> Iterator[Job]:
     except Exception:
         known = frozenset()
 
+    import threading
+    workday_lock = threading.Lock()          # all Workday boards share one host: one at a time, or it answers 429
+
     def one(c):
         try:
+            if c["ats"] == "workday":
+                with workday_lock:
+                    for attempt in range(3):
+                        try:
+                            return ats_jobs(c["ats"], c["slug"], c.get("name", ""), known)
+                        except Exception as e:
+                            if "429" not in str(e) or attempt == 2:
+                                raise
+                            time.sleep(20 * (attempt + 1))
             return ats_jobs(c["ats"], c["slug"], c.get("name", ""), known)
         except Exception as e:      # one broken board must not stop the rest
             errors.append(f"{c.get('name')}: {e}")

@@ -34,6 +34,16 @@ NEXT_BTN = re.compile(r"^\W*(continue|next|weiter|fortfahren|nächster schritt|s
                       r"review( your)? application|bewerbung prüfen)", re.I)
 SUBMIT_BTN = re.compile(r"submit|absenden|abschicken|send application|bewerbung (ab)?senden|^\W*(apply|jetzt bewerben|"
                         r"bewerben|senden|send)\b", re.I)
+GONE = re.compile(r"job nicht gefunden|stelle (ist )?(nicht mehr|leider nicht mehr) (verfügbar|aktiv|online)|"
+                  r"(position|job|vacancy|posting) (is )?no longer (available|active|open)|this job (has )?(expired|closed)|"
+                  r"ausschreibung (ist )?(beendet|abgelaufen|nicht mehr)|bereits besetzt|has been filled|"
+                  r"page not found|seite nicht gefunden|404", re.I)
+
+
+class Gone(Exception):
+    """The posting has been taken down."""
+
+
 BLOCKED = re.compile(r"request blocked|performing security verification|you have been blocked|access denied|verify (that )?you are (a )?human|"
                      r"unusual traffic|are you a robot", re.I)
 SUCCESS = re.compile(r"thank you|thanks for|danke|vielen dank|(you'?ve|you have) (successfully )?(submitted|applied)|submitted your application|application (has been |was )?(received|submitted|sent)|"
@@ -55,17 +65,18 @@ RULES = [
     (r"last.?name|nachname|surname|family.?name|familienname", "last_name"),
     (r"e-?mail", "email"),
     (r"birth|geburt|\bdob\b|geboren", "birth_date"),
+    (r"nationalit|staatsangeh|staatsbürger|citizenship", "nationality"),
     (r"anrede|salutation|\bgender\b|geschlecht|\btitle \(mr", "salutation"),
     (r"phone|telefon|mobile|handy|mobil", "phone"),
     (r"linkedin", "linkedin"),
     (r"github|gitlab", "github"),
     (r"salary|gehalt|compensation|vergütung", "salary_expectation"),
-    (r"start date(?! ?(month|year))|earliest|eintritt|frühest|available from|verfügbar ab|notice period|kündigungsfrist|when can you",
+    (r"start date(?! ?(month|year))|earliest|eintritt|frühest|available from|verfügbar(keit)? ab|notice period|kündigungsfrist|when can you",
      "earliest_start"),
     (r"work permit|work authori[sz]ation|right to work|arbeitserlaubnis|arbeitsgenehmigung|visa|sponsorship",
      "work_permit"),
     (r"post ?code|postal|zip|\bplz\b|postleitzahl", "postcode"),
-    (r"address|adresse|straße|street", "address"),
+    (r"(address|adresse|anschrift|straße|street)(?!.{0,12}(line|zeile) ?2)", "address"),
     (r"\bcity\b|stadt|wohnort|\bort\b|current location|where are you (based|located)|^location", "city"),
     (r"country|\bland\b", "country"),
     (r"^(full |your |vor- und nach)?name\b|vollständiger name", "full_name"),
@@ -79,18 +90,60 @@ FIELDS_JS = r"""
   const vis = e => { const r = e.getBoundingClientRect(), s = getComputedStyle(e);
                      return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
   const own = e => {          // the control's own label element
-    let l = e.id ? document.querySelector('label[for="' + CSS.escape(e.id) + '"]') : null;
+    let l = null;
+    if (e.type === 'radio' || e.type === 'checkbox') {   // some sites give every option the same id: look locally first
+      l = e.closest('label');
+      if (!l && e.parentElement && e.parentElement.querySelectorAll('input').length === 1)
+        l = e.parentElement.querySelector('label');
+      if (!l && e.nextElementSibling && e.nextElementSibling.tagName === 'LABEL') l = e.nextElementSibling;
+      if (l && !txt(l)) l = null;
+    }
+    if (!l && e.id) {
+      const ls = document.querySelectorAll('label[for="' + CSS.escape(e.id) + '"]');
+      l = ls.length === 1 ? ls[0] : null;
+    }
     if (!l && e.getAttribute('aria-labelledby')) l = document.getElementById(e.getAttribute('aria-labelledby').split(/\s+/)[0]);
+    if (l && !txt(l)) l = null;                       // e.g. Cornerstone points aria-labelledby at an empty error box
     return l || e.closest('label');
   };
   const group = (e, skip) => { // the question a control (or a set of radio options) belongs to
     const fs = e.closest('fieldset');
     if (fs) { const lg = fs.querySelector('legend'); if (lg && txt(lg)) return lg; }
+    if (e.type === 'radio' || e.type === 'checkbox') {
+      // the smallest block holding every option of this question; its text minus the option labels is the question
+      let all, box = e.parentElement;
+      if (e.name) {
+        all = [...document.querySelectorAll('input[name="' + CSS.escape(e.name) + '"]')];
+        while (box && !all.every(x => box.contains(x))) box = box.parentElement;
+      } else {                  // unnamed options: the nearest block with several of them
+        while (box && box.querySelectorAll('input[type=' + e.type + ']').length < 2 && box !== document.body) box = box.parentElement;
+        all = box ? [...box.querySelectorAll('input[type=' + e.type + ']')] : [e];
+        if (all.length < 2) { all = [e]; box = e.parentElement; }
+      }
+      for (let i = 0; box && i < 3; i++, box = box.parentElement) {
+        let t = txt(box);
+        for (const x of all) { const ol = own(x); if (ol) t = t.split(txt(ol)).join(' '); }
+        t = t.replace(/\s+/g, ' ').trim();
+        if (t.length >= 3) return {innerText: t.slice(0, 200)};
+      }
+    }
     for (let p = e.parentElement, i = 0; p && i < 6; p = p.parentElement, i++) {
       for (const l of p.querySelectorAll(':scope > label, :scope > legend, :scope > p, :scope > span, :scope > div > label'))
         if (l !== skip && !l.contains(e) && txt(l)) return l;
     }
     return null;
+  };
+  const near = e => {          // short text right around a control ("Vorname*") when there is no real label
+    for (let p = e.parentElement, i = 0; p && i < 3; p = p.parentElement, i++) {
+      const t = txt(p);
+      if (t && t.length <= 70) return t;
+      if (t) break;
+    }
+    for (let c = e, i = 0; c && i < 6; c = c.parentElement, i++) {   // or a caption placed just before it
+      const prev = c.previousElementSibling, t = txt(prev);
+      if (t && t.length <= 90 && !prev.querySelector('input, select, textarea')) return t;
+    }
+    return '';
   };
   const isReq = l => !!l && (/required/i.test(l.className || '') || /\*\s*$|\(required\)|pflichtfeld/i.test(txt(l)));
   document.querySelectorAll('[data-jp],[data-jp-yn],[data-jp-btn]').forEach(e => { e.removeAttribute('data-jp'); e.removeAttribute('data-jp-yn'); e.removeAttribute('data-jp-btn'); });
@@ -119,12 +172,13 @@ FIELDS_JS = r"""
       continue;
     }
     if (!widget && type !== 'file' && !vis(e) && !['radio', 'checkbox'].includes(type)) continue;
-    if (e.disabled || e.readOnly && e.getAttribute('role') !== 'combobox') continue;
-    if (!widget && e.getAttribute('aria-hidden') === 'true' || (e.tabIndex === -1 && !e.name && !['file', 'radio', 'checkbox'].includes(type))) continue;
+    if (e.disabled || e.readOnly && e.getAttribute('role') !== 'combobox' && !['radio', 'checkbox'].includes(type)) continue;
+    if (!widget && type !== 'file' && e.getAttribute('aria-hidden') === 'true' || (e.tabIndex === -1 && !e.name && !['file', 'radio', 'checkbox'].includes(type))) continue;
     const choice = type === 'radio' || type === 'checkbox';
     const o = own(e), g = group(e, o);
     const q = choice ? (g || o) : (o || g);
-    const label = (txt(q) || e.getAttribute('aria-label') || e.getAttribute('placeholder') || '').slice(0, 300);
+    const label = (choice ? (txt(q) || e.getAttribute('aria-label') || near(e))
+                          : (txt(o) || e.getAttribute('aria-label') || near(e) || txt(g) || e.getAttribute('placeholder')) || '').slice(0, 300);
     // yes/no button pairs backed by a hidden checkbox (Ashby)
     let yn = false;
     if (type === 'checkbox' && e.parentElement) {
@@ -140,7 +194,7 @@ FIELDS_JS = r"""
     e.setAttribute('data-jp', String(n));
     out.push({
       cc,
-      i: n++, type, name: e.name || e.id || '', label, option: choice && !yn ? txt(o).slice(0, 200) : '', yn,
+      i: n++, type, name: e.name || (choice ? 'grp:' + label : e.id) || '', label, option: choice && !yn ? txt(o).slice(0, 200) : '', yn,
       required: e.required || e.getAttribute('aria-required') === 'true' || isReq(q) ||
                 (choice && !!e.closest('[role=radiogroup][aria-required=true], [role=group][aria-required=true]')),
       combo: e.getAttribute('role') === 'combobox' || e.getAttribute('aria-autocomplete') === 'list',
@@ -268,13 +322,17 @@ def _known(cfg: dict, con, label: str, name: str, choice: bool = False) -> str |
     hay = f"{label} | {name}".lower()
     for pat, key in RULES:
         if re.search(pat, hay):
-            if choice and key not in ("salutation", "country"):
+            if choice and key not in ("salutation", "country", "nationality"):
                 return None         # yes/no and multiple-choice questions are never answered by keyword rules,
             val = ans.get(key) or None      # except plain personal facts (salutation, country)
             if key == "birth_date" and val:
                 m = re.match(r"(\d{4})-(\d{2})-(\d{2})$", val.strip())
                 if m:
                     val = f"{m.group(3)}.{m.group(2)}.{m.group(1)}"      # Austrian forms: TT.MM.JJJJ
+            if key == "earliest_start" and re.search(r"tt\.mm|dd\.mm|dd/mm|jjjj|yyyy|datum|date", hay) \
+                    and val and not re.search(r"\d{1,2}[./]\d{1,2}[./]\d{4}", val):
+                import datetime                            # a date field: "as soon as possible" = today
+                val = datetime.date.today().strftime("%d.%m.%Y")
             return "@letter" if key == "letter" else val
     return None
 
@@ -331,7 +389,7 @@ def _ask_llm(cfg, llm, job, questions: list[dict]) -> dict:
 def _dismiss_cookies(page):
     for pat in (r"^(reject|decline|deny|ablehnen|alle ablehnen|optionale cookies ablehnen|nur notwendige|"
                 r"only (necessary|essential)|necessary only|nichts akzeptieren|nur (erforderliche|essenzielle|notwendige)|"
-                r"notwendige cookies|continue without accepting|ohne (zustimmung|einwilligung)|refuse|"
+                r"notwendige cookies|continue without accepting|alles ablehnen|ohne (zustimmung|einwilligung)|refuse|"
                 r"alle optionalen ablehnen|use necessary cookies only)", ):
         try:
             b = page.get_by_role("button", name=re.compile(pat, re.I)).or_(
@@ -376,7 +434,8 @@ def _form_frame(page, relaxed: bool = False):
     return best
 
 
-def _open_form(ctx, page, url: str, skip_hosts: list[str], mine: list[str] = ()):
+def _open_form(ctx, page, url: str, skip_hosts: list[str], mine: list[str] = (), cfg: dict | None = None,
+               log=print, dry: bool = True):
     page.goto(url, wait_until="domcontentloaded", timeout=45000)
     clicked: set[str] = set()
     for _ in range(5):
@@ -386,6 +445,14 @@ def _open_form(ctx, page, url: str, skip_hosts: list[str], mine: list[str] = ())
             raise NeedsYou(f"{host} needs an account — sign in once with:  python -m jobpilot login {host.removeprefix('www.')}")
         _dismiss_cookies(page)
         on_board = any(h in host for h in BOARD_HOSTS) and not any(m in host for m in mine)     # a job board's own sign-up box is not the application
+        try:
+            head = (page.title() + " " + page.inner_text("body", timeout=3000)[:600])
+            if GONE.search(head) and not _form_frame(page):
+                raise Gone(f"the posting is no longer online ({host})")
+        except Gone:
+            raise
+        except Exception:
+            pass
         try:
             if BLOCKED.search(page.inner_text("body", timeout=3000)[:1500]) or \
                     page.locator("iframe[src*='captcha-delivery.com']").count():
@@ -433,6 +500,10 @@ def _open_form(ctx, page, url: str, skip_hosts: list[str], mine: list[str] = ())
     except Exception:
         head, pw_box = "", 0
     if pw_box or re.search(r"login|log-in|signin|sign-in|anmeld|authenti|register|registrier", head):
+        from . import signup
+        if not getattr(page, "_jp_signed_up", False) and signup.try_signup(cfg, page, log, dry):
+            page._jp_signed_up = True
+            return _open_form(ctx, page, url, skip_hosts, mine, cfg=cfg, log=log, dry=dry)
         raise NeedsYou(f"{host} wants you to create an account / sign in before applying — sign in once with:  "
                        f"python -m jobpilot login {host.removeprefix('www.')}")
     raise NeedsYou(f"couldn't find an application form on {host} — apply by hand (documents are ready)")
@@ -449,6 +520,10 @@ def _pick_option(options: list[str], answer: str) -> str | None:
     for alt in ALT_NAMES.get(a, []):                      # the list may be in German (Austria -> Österreich)
         for o in options:
             if norm(alt) == norm(o) or norm(alt) in norm(o):
+                return o
+    if a and a not in ("austria", "osterreich", "österreich", "austrian", "osterreichisch", "österreichisch"):
+        for o in options:                                    # "Österreich / Andere Nationalität" style questions
+            if re.search(r"andere (nationalit|staatsb)|other (nationalit|citizen)|non[- ]?eu|drittstaat", o, re.I):
                 return o
     return None
 
@@ -1016,7 +1091,7 @@ def apply_one(cfg, con, llm, job: dict, ctx, pdf_browser, log=print, hand: bool 
     skip = [h.lower() for h in a.get("skip_hosts", []) if not any(h.lower() in m or m in h.lower() for m in mine)]
     try:
         try:
-            page, (fr, fields) = _open_form(ctx, page, _target_url(job), skip, mine)
+            page, (fr, fields) = _open_form(ctx, page, _target_url(job), skip, mine, cfg=cfg, log=log, dry=dry)
         except NeedsYou:
             if mail and em.get("enabled") and _mail_pw(em):
                 cv_pdf, letter_pdf, letter = documents()
@@ -1029,6 +1104,21 @@ def apply_one(cfg, con, llm, job: dict, ctx, pdf_browser, log=print, hand: bool 
         while True:                               # one pass per page of a multi-step application
             n += _fill(cfg, con, llm, job, fr, fields, cv_pdf, letter_pdf, letter, log)
             page.wait_for_timeout(800)
+            for _ in range(2):          # answers can reveal more fields ("other nationality: which?") — fill those too
+                try:
+                    seen = {(f["type"], f["name"], f["label"], f.get("option", "")) for f in fields}
+                    again = fr.evaluate(FIELDS_JS)
+                except Exception:
+                    break
+                extra = [f for f in again if (f["type"], f["name"], f["label"], f.get("option", "")) not in seen
+                         and not f["value"]]
+                if not extra:
+                    break
+                fields = again
+                n += _fill(cfg, con, llm, job, fr, [f for f in again if f["type"] != "file" and
+                                                    (not f["value"] or f["type"] in ("radio", "checkbox"))],
+                           cv_pdf, letter_pdf, letter, log)
+                page.wait_for_timeout(800)
             steps += 1
             page.screenshot(path=str(folder / ("form_filled.jpg" if steps == 1 else f"form_filled_{steps}.jpg")), full_page=True, type="jpeg", quality=55)
             nxt = None if _button(page, SUBMIT_BTN) else _button(page, NEXT_BTN)
@@ -1192,6 +1282,8 @@ def apply_queued(cfg: dict, con, log=print, ids: list[str] | None = None, hand: 
                         status, note = apply_one(cfg, wcon, llm, job, ctx, pdf_browser, log, hand)
                     except NeedsYou as e:
                         status, note = "manual", str(e)
+                    except Gone as e:
+                        status, note = "skipped", str(e)
                     except HttpError as e:
                         if e.status in (429, 503) and e.url == "llm":
                             if not stop.is_set():
@@ -1212,7 +1304,7 @@ def apply_queued(cfg: dict, con, log=print, ids: list[str] | None = None, hand: 
                                      (status, note, now_iso() if status == "applied" else None, jid))
                         wcon.commit()
                         _host_record(wcon, job.get("_host") or "", status, note)
-                        stats[status] += 1
+                        stats[status] = stats.get(status, 0) + 1
                         done[0] += 1
                         log(f"  [{done[0]}/{len(rows)}] {'✓' if status == 'applied' else '→ needs you'}  {job['title'][:50]} — "
                             f"{(job.get('company') or '')[:25]}: {note}")

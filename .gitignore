@@ -15,3 +15,4 @@ cv.de.md
 *.db-shm
 cv_profile.txt
 config.toml.bak-*
+portal_accounts.json

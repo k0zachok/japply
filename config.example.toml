@@ -166,6 +166,7 @@ linkedin = ""
 github = ""
 birth_date = ""                 # YYYY-MM-DD — many Austrian forms require it
 salutation = ""                 # "Herr" / "Frau" / "Divers" — German forms ask for the Anrede
+nationality = ""                # e.g. "Ukrainian" — some Austrian forms ask (Österreich / andere)
 address = ""                 # street and number
 postcode = ""
 city = "Vienna"
@@ -186,6 +187,12 @@ app_password = ""
 # read-only to pick up verification codes and confirmation links that sites e-mail during an application.
 # Gmail: turn on 2-step verification, create an App Password, and put it in the JOBPILOT_MAILBOX_PASSWORD
 # environment variable (or app_password below).
+# Create candidate accounts on employer portals that require one (registered with the mailbox below, so the
+# confirmation e-mail is read automatically). Off unless enabled AND you set JOBPILOT_PORTAL_PASSWORD (your choice
+# of password). Accounts created are listed in portal_accounts.json.
+[apply.signup]
+enabled = false
+
 [apply.mailbox]
 enabled = true
 imap_host = "imap.gmail.com"

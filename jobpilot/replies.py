@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from email.header import decode_header, make_header
 from email.utils import parsedate_to_datetime
 
-from .core import strip_html
+from .core import secret, strip_html
 
 REJECT = re.compile(r"leider|bedauer|absage|nicht berücksichtig|keine (positive|zusage)|anderen? (bewerber|kandidat)|"
                     r"unfortunately|we regret|regret to|not (be )?(moving|proceeding) forward|other candidates|"
@@ -33,10 +33,10 @@ def accounts(cfg: dict) -> list[dict]:
     """Every mailbox we have a password for: the application mailbox and (if set up) your personal one."""
     a, out = cfg.get("apply", {}), []
     m, e = a.get("mailbox", {}), a.get("email", {})
-    pw = os.environ.get("JOBPILOT_MAILBOX_PASSWORD") or m.get("app_password", "")
+    pw = secret("JOBPILOT_MAILBOX_PASSWORD") or m.get("app_password", "")
     if m.get("user") and pw:
         out.append({"host": m.get("imap_host", "imap.gmail.com"), "user": m["user"], "pw": pw, "folder": m.get("folder", "INBOX")})
-    pw = os.environ.get("JOBPILOT_EMAIL_PASSWORD") or e.get("app_password", "")
+    pw = secret("JOBPILOT_EMAIL_PASSWORD") or e.get("app_password", "")
     if e.get("user") and pw and e["user"] != m.get("user"):
         out.append({"host": e.get("imap_host", "imap.gmail.com"), "user": e["user"], "pw": pw, "folder": "INBOX"})
     return out
@@ -112,7 +112,9 @@ def check(cfg: dict, con, log=print) -> dict:
     stats = {"confirmed": 0, "interview": 0, "rejected": 0}
     accs = accounts(cfg)
     jobs = [dict(r) for r in con.execute(
-        "SELECT id, title, company, status, apply_note, applied_at FROM jobs WHERE status IN ('applied', 'interview')")]
+        "SELECT id, title, company, status, apply_note, applied_at FROM jobs WHERE status IN ('applied', 'interview') "
+        # submissions the script couldn't confirm on screen: a confirmation e-mail settles them
+        "OR (status = 'manual' AND (apply_note LIKE '%no confirmation appeared%' OR apply_note LIKE '%CAPTCHA%'))")]
     if not accs or not jobs:
         if jobs and not accs:
             log("  inbox: no mailbox password set, replies are not tracked "
@@ -136,6 +138,9 @@ def check(cfg: dict, con, log=print) -> dict:
                        "interview": "they want to talk — see your inbox", "rejected": "rejection received"}[kind] \
                        + f" (“{subject[:60]}”)"
                 status = {"rejected": "rejected", "interview": "interview"}.get(kind, job["status"])
+                if job["status"] == "manual":            # it did go through after all
+                    status = {"confirmed": "applied"}.get(kind, status)
+                    con.execute("UPDATE jobs SET applied_at=COALESCE(applied_at, ?) WHERE id=?", (when.isoformat(), job["id"]))
                 con.execute("UPDATE jobs SET status=?, apply_note=? WHERE id=?",
                             (status, (note + " · " + (job.get("apply_note") or ""))[:400], job["id"]))
                 job["status"], job["apply_note"] = status, note

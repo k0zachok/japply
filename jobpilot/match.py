@@ -195,57 +195,148 @@ def scoring_profile(cfg: dict, llm, log=print) -> str:
     return cv[:6000]
 
 
-def ai_score_all(cfg: dict, con, llm, log=print) -> int:
-    cv = scoring_profile(cfg, llm, log)
-    lc = cfg["llm"]
-    rows = con.execute(
-        "SELECT * FROM jobs WHERE status IN ('new','saved') AND ai_score IS NULL AND (kw_score >= ? "
-        # commutable student / entry-level jobs are rare, so they get an AI look even on a weak keyword score
-        "OR (where_ok != 'remote' AND kw_score >= 8 AND (types LIKE '%intern%' OR types LIKE '%working_student%' "
-        "OR types LIKE '%trainee%' OR types LIKE '%thesis%'))) "
-        "ORDER BY kw_score DESC LIMIT ?", (lc.get("min_keyword_score", 20), lc.get("score_top_n", 60))).fetchall()
-    # what you approved / rejected so far teaches the model your taste
+# Pre-filter for the AI. Deliberately generous: anything that looks like a tech / data / IT role, or any student
+# position you can commute to, goes to the AI. Only titles that are clearly another profession are left out.
+RELEVANT = re.compile(
+    r"software|entwickl|develop|programm|engineer|ingenieur|data|daten|analy[st]|statisti|\bit\b|it-|informatik|"
+    r"devops|cloud|platform|plattform|backend|frontend|full.?stack|web|python|java|\bsql\b|\bai\b|\bki\b|"
+    r"künstliche|machine learning|\bml\b|mlops|llm|nlp|automati|digital|tech|system|test|qa\b|quality|\bbi\b|"
+    r"business intelligence|reporting|insight|research|scien|forsch|algorithm|security|cyber|infrastruct|"
+    r"integration|schnittstell|solution|product|produkt|erp|odoo|sap\b|crm|consult|berat|"
+    r"mathemati|aktuar|actuar|quant|fintech|operations research", re.I)
+OTHER_JOB = re.compile(
+    r"verkäuf|verkauf|sales|account executive|außendienst|filial|kassier|lager|logistik(?!.*data)|fahrer|chauffeur|"
+    r"koch|küche|service ?mitarbeit|reinigung|pflege|nurse|medical|arzt|ärzt|therap|apothek|pharma ?referent|"
+    r"payroll|personalverrechn|lohn|buchhalt|bilanz|steuer|tax|recht|legal|jurist|anwalt|notar|"
+    r"recruit|hr |hr-|human resources|personal(?!is)|marketing manager|media planner|grafik|design(?!.*(system|data))|"
+    r"assistent|sekretär|office manag|empfang|front office|rezeption|hausmeister|elektriker|mechani|monteur|"
+    r"techniker(?!.*(it|software|daten))|bauleit|polier|maurer|tischler|installateur|totenabhol|bestatt", re.I)
+STUDENT = ("intern", "working_student", "trainee", "thesis")
+
+
+def worth_scoring(r) -> bool:
+    """Should this job go to the AI? Generous on purpose — see RELEVANT / OTHER_JOB above."""
+    title, kw = r["title"] or "", r["kw_score"] or 0
+    student = any(t in (r["types"] or "") for t in STUDENT) and r["where_ok"] != "remote"
+    if kw >= 20:
+        return True
+    if RELEVANT.search(title):
+        return True
+    if student and not OTHER_JOB.search(title):
+        return True
+    return False
+
+
+BATCH_PROMPT = """You are a strict, honest career advisor in Vienna, Austria. Rate how well this candidate fits
+EACH of the jobs below. Judge every job on its own.
+
+CANDIDATE PROFILE:
+{cv}
+
+CANDIDATE PREFERENCES: wants {roles}. German level {german}, English {english}. Currently enrolled in a part-time
+MSc (so eligible for working-student / Werkstudent roles). Lives in Vienna.
+
+{taste}JOBS:
+{jobs}
+
+Return ONLY a JSON object {{"results": [...]}} with one entry per job, in the same order, each:
+{{"id": "<the job's id>", "score": <0-100 realistic chance this candidate gets an interview>,
+  "verdict": "apply" | "maybe" | "skip", "why": "<max 2 sentences: strongest match points>",
+  "gaps": "<max 2 sentences: missing requirements, or empty>",
+  "matched": [<up to 5 key requirements the candidate meets, 2-6 words each>],
+  "missing": [<up to 5 key requirements the candidate does NOT meet, 2-6 words each>],
+  "salary": "<salary stated in the ad, else empty>",
+  "german_required": "none" | "basic" | "good" | "fluent", "language": "de" | "en",
+  "seniority": "student" | "junior" | "mid" | "senior"}}
+Be realistic: senior roles, fluent-German requirements or 3+ years experience mean a low score."""
+
+
+def _taste(con) -> str:
+    """What you approved / rejected so far teaches the model your taste."""
     liked = [f"{x['title']} — {x['company']}" for x in con.execute(
         "SELECT title, company FROM jobs WHERE status IN ('applied','interview','offer','queued','manual','saved') "
         "ORDER BY last_seen DESC LIMIT 12")]
     disliked = [f"{x['title']} — {x['company']}" for x in con.execute(
         "SELECT title, company FROM jobs WHERE status='hidden' ORDER BY last_seen DESC LIMIT 12")]
-    taste = ""
-    if liked or disliked:
-        taste = ("THE CANDIDATE'S OWN RECENT DECISIONS (weigh similar jobs accordingly):\n"
-                 + ("Chose to apply: " + "; ".join(liked) + "\n" if liked else "")
-                 + ("Rejected: " + "; ".join(disliked) + "\n" if disliked else "") + "\n")
-    n = 0
-    for i, r in enumerate(rows, 1):
-        prompt = SCORE_PROMPT.format(taste=taste, 
-            cv=cv[:6000], roles=", ".join(cfg["profile"]["target_roles"][:10]),
-            german=cfg["profile"].get("german_level"), english=cfg["profile"].get("english_level"),
-            title=r["title"], company=r["company"], location=r["location"], desc=(r["description"] or "")[:4500])
+    if not (liked or disliked):
+        return ""
+    return ("THE CANDIDATE'S OWN RECENT DECISIONS (weigh similar jobs accordingly):\n"
+            + ("Chose to apply: " + "; ".join(liked) + "\n" if liked else "")
+            + ("Rejected: " + "; ".join(disliked) + "\n" if disliked else "") + "\n")
+
+
+def ai_score_all(cfg: dict, con, llm, log=print) -> int:
+    """Score the Inbox with the AI, several jobs per call (score_batch, default 6) so the free quota goes far.
+    Jobs that look promising get a second opinion from the strongest model, one by one."""
+    from .pipeline import ensure_description
+    lc = cfg["llm"]
+    batch, budget = max(1, int(lc.get("score_batch", 6))), int(lc.get("score_top_n", 40))   # budget = AI calls per run
+    cands = [r for r in con.execute(
+        "SELECT * FROM jobs WHERE status IN ('new','saved') AND ai_score IS NULL "
+        "ORDER BY (where_ok IN ('vienna','hybrid')) DESC, kw_score DESC, first_seen DESC").fetchall() if worth_scoring(r)]
+    if not cands:
+        return 0
+    cv = scoring_profile(cfg, llm, log)
+    taste = _taste(con)
+    # a second opinion only where it decides something: jobs close to the auto-apply bar
+    second_min = int(cfg.get("apply", {}).get("auto_min_score", 75)) - 15
+    n = calls = 0
+    for k in range(0, len(cands), batch):
+        if calls >= budget:
+            log(f"  {len(cands) - k} job(s) wait for the next run (AI calls per run: {budget})")
+            break
+        chunk = []
+        for r in cands[k:k + batch]:
+            job = dict(r)
+            if len(job.get("description") or "") < 300:      # text missing in the feed: read the job page once
+                job = ensure_description(cfg, con, job, log=lambda *_: None)
+            chunk.append(job)
+        jobs_txt = "\n\n".join(
+            f"--- id: {j['id']}\nTitle: {j['title']}\nCompany: {j['company']}\nLocation: {j['location']}\n"
+            f"Description:\n{(j.get('description') or '(no description available)')[:1800]}" for j in chunk)
+        prompt = BATCH_PROMPT.format(taste=taste, cv=cv[:3000], roles=", ".join(cfg["profile"]["target_roles"][:10]),
+                                     german=cfg["profile"].get("german_level"), english=cfg["profile"].get("english_level"),
+                                     jobs=jobs_txt)
         try:
-            res = llm.json(prompt, max_tokens=900)
-            score = int(max(0, min(100, float(res.get("score", 0)))))
-            res["model"] = llm.last_model
-            # Cheap models score lower than strong ones, so a promising job gets a second opinion from the
-            # strongest model that still has quota; its verdict is the one that counts.
-            if len(llm.models) > 1 and score >= int(cfg.get("apply", {}).get("review_min_score", 45)) - 10 \
-                    and res.get("verdict") != "skip":
+            res = llm.json(prompt, max_tokens=450 * len(chunk))
+            calls += 1
+        except Exception as e:
+            if getattr(e, "url", "") == "llm":
+                log(f"  ⚠ AI quota reached after {n} jobs — the rest wait in the Inbox for the next run")
+                break
+            log(f"  AI scoring failed for a batch: {str(e)[:120]}")
+            calls += 1
+            continue
+        by_id = {str(x.get("id")): x for x in (res.get("results") or []) if isinstance(x, dict)}
+        for j in chunk:
+            r = by_id.get(j["id"])
+            if not r:
+                continue                                   # left out by the model: stays in the Inbox, retried next run
+            try:
+                score = int(max(0, min(100, float(r.get("score", 0)))))
+            except Exception:
+                continue
+            r["model"] = llm.last_model
+            if len(llm.models) > 1 and score >= second_min and r.get("verdict") != "skip" and calls < budget:
+                single = SCORE_PROMPT.format(taste=taste, cv=cv[:3000], roles=", ".join(cfg["profile"]["target_roles"][:10]),
+                                             german=cfg["profile"].get("german_level"),
+                                             english=cfg["profile"].get("english_level"), title=j["title"],
+                                             company=j["company"], location=j["location"],
+                                             desc=(j.get("description") or "")[:4500])
                 try:
-                    res2 = llm.json(prompt, best=True)
-                    if llm.last_model != res["model"]:
-                        res2["model"], res2["first_opinion"] = llm.last_model, f"{res['model']}: {score}"
-                        res, score = res2, int(max(0, min(100, float(res2.get("score", 0)))))
+                    r2 = llm.json(single, best=True, max_tokens=900)
+                    calls += 1
+                    if llm.last_model != r["model"]:
+                        r2["model"], r2["first_opinion"] = llm.last_model, f"{r['model']}: {score}"
+                        r, score = r2, int(max(0, min(100, float(r2.get("score", 0)))))
                 except Exception:
                     pass
-        except Exception as e:
-            if getattr(e, "url", "") == "llm":      # provider quota / every model overloaded: stop, the rest stay in the Inbox for next run
-                log(f"  ⚠ AI quota reached after {n} jobs — {len(rows) - i + 1} wait in the Inbox for the next run")
-                break
-            log(f"  AI scoring failed for {r['title'][:50]}: {e}")
-            continue
-        con.execute("UPDATE jobs SET ai_score=?, ai_json=? WHERE id=?", (score, json.dumps(res, ensure_ascii=False), r["id"]))
+            r.pop("id", None)
+            con.execute("UPDATE jobs SET ai_score=?, ai_json=? WHERE id=?", (score, json.dumps(r, ensure_ascii=False), j["id"]))
+            n += 1
+            log(f"  {score:3d}  {j['title'][:60]} — {(j['company'] or '')[:30]}")
         con.commit()
-        n += 1
-        log(f"  [{i}/{len(rows)}] {score:3d}  {r['title'][:60]} — {r['company'][:30]}")
+    log(f"  AI-scored {n} jobs with {calls} AI call(s)")
     return n
 
 

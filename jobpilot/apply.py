@@ -17,7 +17,7 @@ from pathlib import Path
 import time
 
 from . import mailbox, pipeline
-from .core import HttpError, load_cv_text, norm, now_iso, resolve
+from .core import secret, HttpError, load_cv_text, norm, now_iso, resolve
 from .llm import LLM
 from .tailor import app_folder, detect_lang, tailor
 
@@ -913,7 +913,7 @@ def apply_email_address(desc: str) -> str | None:
 
 
 def _mail_pw(e: dict) -> str:
-    return os.environ.get("JOBPILOT_EMAIL_PASSWORD") or e.get("app_password", "")
+    return secret("JOBPILOT_EMAIL_PASSWORD") or e.get("app_password", "")
 
 
 def _send_email(cfg, job, to: str, letter: str, attachments: list[Path], folder: Path, dry: bool) -> str:
@@ -962,6 +962,8 @@ def _on_karriere(job: dict) -> str | None:
 
 def _target_url(job: dict) -> str:
     u = job["url"]
+    if job["source"] == "onlyfy":                     # the job page itself has no form; this is the application
+        return re.sub(r"/(?:en|de)/job/([a-z0-9]+).*$", r"/application/apply/\1", u)
     if job["source"] == "adzuna":
         # Adzuna only lists jobs and its apply link refuses automated browsers. The same posting is usually on
         # karriere.at, where applying works — look it up there by company and title.

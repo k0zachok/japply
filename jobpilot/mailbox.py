@@ -9,7 +9,7 @@ import time
 from email.header import decode_header, make_header
 from email.utils import parsedate_to_datetime
 
-from .core import strip_html
+from .core import secret, strip_html
 
 CODE = re.compile(r"(?<![\w/=.-])(\d{4,8})(?![\w/=-])")
 LINK = re.compile(r"https?://[^\s\"'<>)]+", re.I)
@@ -17,7 +17,7 @@ VERIFY_WORDS = re.compile(r"verif|confirm|bestätig|activate|aktivier|code|one-t
 
 
 def password(m: dict) -> str:
-    return os.environ.get("JOBPILOT_MAILBOX_PASSWORD") or m.get("app_password", "")
+    return secret("JOBPILOT_MAILBOX_PASSWORD") or m.get("app_password", "")
 
 
 def enabled(cfg: dict) -> bool:

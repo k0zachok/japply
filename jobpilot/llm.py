@@ -7,7 +7,7 @@ import re
 import time
 from pathlib import Path
 
-from .core import HttpError, get_json
+from .core import HttpError, get_json, secret
 
 
 class LLM:
@@ -31,7 +31,7 @@ class LLM:
         LLM.spent |= set(self._until)
         self.base = (c.get("base_url") or "").rstrip("/")
         # Prefer an environment variable so the key never sits in config.toml.
-        self.key = (os.environ.get("JOBPILOT_API_KEY") or os.environ.get(
+        self.key = (secret("JOBPILOT_API_KEY") or os.environ.get(
             {"anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"}.get(self.provider, "-"))
             or c.get("api_key", ""))
 

@@ -15,7 +15,7 @@ import urllib.parse
 from pathlib import Path
 
 from . import mailbox
-from .core import now_iso, resolve
+from .core import secret, now_iso, resolve
 
 REGISTER = re.compile(r"^\W*(registrieren|jetzt registrieren|konto (erstellen|anlegen)|account (erstellen|anlegen)|"
                       r"create (an? )?account|sign ?up|register( now)?|neu hier|noch kein (konto|account)|"
@@ -32,7 +32,7 @@ def enabled(cfg: dict) -> bool:
 
 
 def password() -> str:
-    return os.environ.get("JOBPILOT_PORTAL_PASSWORD", "")
+    return secret("JOBPILOT_PORTAL_PASSWORD")
 
 
 def _accounts_file(cfg: dict) -> Path:

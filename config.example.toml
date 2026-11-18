@@ -135,8 +135,9 @@ api_key = ""                 # leave empty and set the JOBPILOT_API_KEY environm
 #   base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
 #   model = "gemini-3.5-flash-lite"
 #   api_key = "YOUR_KEY"
-score_top_n = 40             # AI-score only the best N new jobs per run (sized to the free Gemini quota)
-min_keyword_score = 20       # below this a job isn't sent to the AI at all
+score_top_n = 40             # AI calls per run for scoring (sized to the free Gemini quota)
+score_batch = 6              # jobs judged per AI call
+min_keyword_score = 20       # (kept for reference; the pre-filter in match.worth_scoring is broader)
 
 # ---------------- Auto-apply ----------------
 [apply]

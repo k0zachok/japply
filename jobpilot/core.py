@@ -232,3 +232,29 @@ def upsert(con: sqlite3.Connection, j: Job) -> bool:
         (j.id, key, j.source, j.title.strip(), (j.company or "").strip(), (j.location or "").strip(), j.url,
          j.description, j.posted_at, int(bool(j.remote)), j.employment_hint, j.salary, ts, ts))
     return True
+
+
+SECRETS = ("JOBPILOT_API_KEY", "JOBPILOT_MAILBOX_PASSWORD", "JOBPILOT_EMAIL_PASSWORD", "JOBPILOT_PORTAL_PASSWORD")
+
+
+def secret(name: str) -> str:
+    """A password or key: the environment variable if set, else the macOS Keychain (service "jobman").
+    Put it there once with:  python -m jobpilot secrets"""
+    import os
+    import subprocess
+    v = os.environ.get(name)
+    if v:
+        return v
+    try:
+        r = subprocess.run(["security", "find-generic-password", "-s", "jobman", "-a", name, "-w"],
+                           capture_output=True, text=True, timeout=10)
+        return r.stdout.strip() if r.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def store_secret(name: str, value: str) -> bool:
+    import subprocess
+    r = subprocess.run(["security", "add-generic-password", "-U", "-s", "jobman", "-a", name, "-w", value],
+                       capture_output=True, text=True, timeout=10)
+    return r.returncode == 0

@@ -92,6 +92,23 @@ def make_handler(cfg):
                     rows = con.execute("SELECT key, question, options, answer FROM answers ORDER BY answer IS NOT NULL, question").fetchall()
                     con.close()
                     return self._send(200, [dict(r) for r in rows])
+                if u.path == "/api/health":       # last daily run + AI quota, for the line under the header
+                    import time as _t
+                    try:
+                        last = json.loads(resolve(cfg, "last_run.json").read_text())
+                    except Exception:
+                        last = None
+                    try:
+                        spent = {m: t for m, t in json.loads(resolve(cfg, "llm_quota.json").read_text()).items() if t > _t.time()}
+                    except Exception:
+                        spent = {}
+                    models = cfg.get("llm", {}).get("models") or [cfg.get("llm", {}).get("model")]
+                    con = connect(cfg)
+                    waiting = con.execute("SELECT COUNT(*) FROM jobs WHERE status='new' AND ai_score IS NULL").fetchone()[0]
+                    con.close()
+                    return self._send(200, {"last": last, "models": len([m for m in models if m]),
+                                            "spent": len(spent), "unscored": waiting,
+                                            "resets": min(spent.values()) if spent else None})
                 if u.path == "/api/progress":
                     return self._send(200, {"busy": State.busy, "log": State.log[-300:],
                                             "dry_run": bool(cfg.get("apply", {}).get("dry_run", True))})

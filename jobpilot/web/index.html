@@ -60,6 +60,8 @@
   table.src { border-collapse:collapse; width:100%; font-size:13px; } .src td, .src th { border-bottom:1px solid var(--line); padding:5px 6px; text-align:left; }
   .count { color:var(--mute); font-size:13px; }
   button.big { padding:9px 16px; font-weight:600; } kbd { font:11px ui-monospace,monospace; opacity:.7; border:1px solid currentColor; border-radius:4px; padding:0 4px; margin-left:4px; }
+  #health { padding:6px 20px; font-size:12.5px; color:var(--mute); border-bottom:1px solid var(--line); background:var(--card); }
+  #health b { color:var(--ink); font-weight:600; } #health .bad { color:var(--warn); }
   #dry { background:var(--warnbg); color:var(--warn); padding:6px 20px; font-size:13px; display:none; }
   #dlgQ input { width:100%; }
   header { flex-wrap:wrap; } .tabs { display:flex; flex-wrap:wrap; gap:4px; }
@@ -77,6 +79,7 @@
   <button class="primary" id="refresh" onclick="refresh()">↻ Find new jobs</button>
 </header>
 
+<div id="health"></div>
 <div id="dry">Dry-run mode: forms are filled and screenshotted but <b>not submitted</b>. Set <code>dry_run = false</code> in config.toml (section [apply]) and restart to really apply.</div>
 <div class="bar">
   <input type="search" id="q" placeholder="Search title, company…" oninput="render()">
@@ -314,7 +317,21 @@ async function openSources() {
   dlgSrc.showModal();
 }
 
-chips("where", WHERE, where); chips("types", TYPES, types); load(); countQuestions();
+async function health() {
+  try {
+    const h = await (await fetch("/api/health")).json(), l = h.last;
+    const when = l ? new Date(l.finished) : null;
+    const ago = when ? ((Date.now() - when) / 36e5 < 1 ? "less than an hour ago" : Math.round((Date.now() - when) / 36e5) + " h ago") : "";
+    const stale = when && Date.now() - when > 30 * 36e5;
+    const quota = h.spent >= h.models ? `<span class="bad">AI quota used up for today</span>` :
+                  `AI quota: ${h.models - h.spent} of ${h.models} models available`;
+    $("health").innerHTML = (l ? `Last daily run <b>${ago}</b>: ${l.applied} applied, ${l.new_jobs} new jobs fetched` +
+        (l.errors && l.errors.length ? ` · <span class="bad" title="${esc(l.errors.join("\n"))}">${l.errors.length} problem(s) — hover to see</span>` : "") +
+        (stale ? ` · <span class="bad">no run in over a day — is the Mac asleep at 08:30?</span>` : "")
+      : `No daily run recorded yet`) + ` · ${quota} · ${h.unscored} job(s) waiting to be scored`;
+  } catch (e) {}
+}
+chips("where", WHERE, where); chips("types", TYPES, types); load(); countQuestions(); health();
 fetch("/api/progress").then(r => r.json()).then(p => { if (p.dry_run) $("dry").style.display = "block"; if (p.busy) watch(); });
 </script>
 </body>

@@ -63,7 +63,6 @@ def score(cfg: dict, con, log=print) -> None:
     if llm.enabled:
         try:
             n = ai_score_all(cfg, con, llm, log)
-            log(f"  AI-scored {n} jobs")
         except Exception as e:
             log(f"  ⚠ AI scoring unavailable ({e}). Keyword scores are still used.")
     ai_on = llm.enabled and con.execute("SELECT 1 FROM jobs WHERE ai_score IS NOT NULL LIMIT 1").fetchone() is not None
@@ -71,21 +70,68 @@ def score(cfg: dict, con, log=print) -> None:
     log(f"  triage: {t['queued']} to auto-apply, {t['review']} for you to review, {t['skipped']} skipped")
 
 
-def run(cfg: dict, log=print) -> None:
+STATUSES_SHOWN = ("applied", "manual", "review", "queued", "interview", "rejected")
+
+
+def _counts(con) -> dict:
+    return {r[0]: r[1] for r in con.execute("SELECT status, COUNT(*) FROM jobs GROUP BY status")}
+
+
+def notify(title: str, text: str) -> None:
+    """A macOS notification (silently skipped elsewhere)."""
+    import subprocess
+    esc = lambda x: x.replace("\\", "\\\\").replace('"', '\\"')
+    try:
+        subprocess.run(["osascript", "-e", f'display notification "{esc(text)}" with title "{esc(title)}"'],
+                       timeout=10, capture_output=True)
+    except Exception:
+        pass
+
+
+def run(cfg: dict, log=print) -> dict:
+    """The full daily pass. Writes a summary to last_run.json and shows a notification."""
+    import json as _json
+    from .core import resolve
+    started, errors, lines = now_iso(), [], []
+
+    def say(msg):
+        lines.append(msg)
+        if "⚠" in msg or "failed" in msg.lower():
+            errors.append(msg.strip()[:200])
+        log(msg)
+
     con = connect(cfg)
+    before = _counts(con)
+    inbox = {}
     try:                                    # what did employers answer since the last run?
         from . import replies
-        replies.check(cfg, con, log=log)
+        inbox = replies.check(cfg, con, log=say)
     except Exception as e:
-        log(f"  inbox check failed: {str(e)[:120]}")
-    log("Fetching jobs…")
-    fetch(cfg, con, log=log)
-    log("Scoring…")
-    score(cfg, con, log=log)
+        say(f"  inbox check failed: {str(e)[:120]}")
+    say("Fetching jobs…")
+    totals = fetch(cfg, con, log=say)
+    say("Scoring…")
+    score(cfg, con, log=say)
     if cfg.get("apply", {}).get("enabled", True):
         from .apply import apply_queued
-        apply_queued(cfg, con, log=log)
+        apply_queued(cfg, con, log=say)
+    after = _counts(con)
     con.close()
+    diff = {k: after.get(k, 0) - before.get(k, 0) for k in STATUSES_SHOWN}
+    summary = {"started": started, "finished": now_iso(),
+               "new_jobs": sum(t[1] for t in totals.values()), "applied": max(0, diff["applied"]),
+               "needs_you": after.get("manual", 0), "to_review": after.get("review", 0),
+               "queued": after.get("queued", 0), "replies": inbox,
+               "errors": errors[-8:], "totals": {k: after.get(k, 0) for k in STATUSES_SHOWN}}
+    try:
+        resolve(cfg, "last_run.json").write_text(_json.dumps(summary, ensure_ascii=False, indent=1))
+    except Exception:
+        pass
+    text = (f"{summary['applied']} applied · {summary['to_review']} to review · {summary['needs_you']} need you"
+            + (f" · {inbox.get('interview', 0)} invitation(s)!" if inbox.get("interview") else "")
+            + (f" · {len(errors)} problem(s)" if errors else ""))
+    notify("JobMan daily run", text)
+    return summary
 
 
 def add_url(cfg: dict, con, url: str, text: str = "", title: str = "", company: str = "", log=print) -> str:

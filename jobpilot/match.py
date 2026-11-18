@@ -136,13 +136,12 @@ def classify_all(cfg: dict, con, only_new: bool = True) -> dict:
 
 
 # ------------------------------------------------------------------ AI scoring
-SCORE_PROMPT = """You are a strict, honest career advisor in Vienna, Austria. Rate how well this candidate fits this job.
+SCORE_PROMPT = """You are a strict, honest career advisor in {city}. Rate how well this candidate fits this job.
 
 CANDIDATE PROFILE:
 {cv}
 
-CANDIDATE PREFERENCES: wants {roles}. German level {german}, English {english}. Currently enrolled in a part-time
-MSc (so eligible for working-student / Werkstudent roles). Lives in Vienna.
+CANDIDATE PREFERENCES: wants {roles}. German level {german}, English {english}. {situation}
 
 {taste}JOB:
 Title: {title}
@@ -227,14 +226,13 @@ def worth_scoring(r) -> bool:
     return False
 
 
-BATCH_PROMPT = """You are a strict, honest career advisor in Vienna, Austria. Rate how well this candidate fits
+BATCH_PROMPT = """You are a strict, honest career advisor in {city}. Rate how well this candidate fits
 EACH of the jobs below. Judge every job on its own.
 
 CANDIDATE PROFILE:
 {cv}
 
-CANDIDATE PREFERENCES: wants {roles}. German level {german}, English {english}. Currently enrolled in a part-time
-MSc (so eligible for working-student / Werkstudent roles). Lives in Vienna.
+CANDIDATE PREFERENCES: wants {roles}. German level {german}, English {english}. {situation}
 
 {taste}JOBS:
 {jobs}
@@ -249,6 +247,11 @@ Return ONLY a JSON object {{"results": [...]}} with one entry per job, in the sa
   "german_required": "none" | "basic" | "good" | "fluent", "language": "de" | "en",
   "seniority": "student" | "junior" | "mid" | "senior"}}
 Be realistic: senior roles, fluent-German requirements or 3+ years experience mean a low score."""
+
+
+def _situation(cfg: dict) -> dict:
+    p = cfg["profile"]
+    return {"situation": p.get("situation") or "", "city": p.get("city") or cfg.get("apply", {}).get("answers", {}).get("city") or "Austria"}
 
 
 def _taste(con) -> str:
@@ -295,7 +298,7 @@ def ai_score_all(cfg: dict, con, llm, log=print) -> int:
             f"--- id: {j['id']}\nTitle: {j['title']}\nCompany: {j['company']}\nLocation: {j['location']}\n"
             f"Description:\n{(j.get('description') or '(no description available)')[:1800]}" for j in chunk)
         prompt = BATCH_PROMPT.format(taste=taste, cv=cv[:3000], roles=", ".join(cfg["profile"]["target_roles"][:10]),
-                                     german=cfg["profile"].get("german_level"), english=cfg["profile"].get("english_level"),
+                                     german=cfg["profile"].get("german_level"), english=cfg["profile"].get("english_level"), **_situation(cfg),
                                      jobs=jobs_txt)
         try:
             res = llm.json(prompt, max_tokens=450 * len(chunk))
@@ -320,7 +323,7 @@ def ai_score_all(cfg: dict, con, llm, log=print) -> int:
             if len(llm.models) > 1 and score >= second_min and r.get("verdict") != "skip" and calls < budget:
                 single = SCORE_PROMPT.format(taste=taste, cv=cv[:3000], roles=", ".join(cfg["profile"]["target_roles"][:10]),
                                              german=cfg["profile"].get("german_level"),
-                                             english=cfg["profile"].get("english_level"), title=j["title"],
+                                             english=cfg["profile"].get("english_level"), **_situation(cfg), title=j["title"],
                                              company=j["company"], location=j["location"],
                                              desc=(j.get("description") or "")[:4500])
                 try:

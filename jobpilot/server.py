@@ -243,7 +243,7 @@ def _pdfs(cfg, job, folder: Path):
 
 
 def _pdf_name(cfg, job, doc: str) -> str:
-    """Jane_Doe_CV_Magenta_Telekom.pdf / Jane_Doe_Cover_Letter_Magenta_Telekom.pdf"""
+    """Jane_Doe_CV_Example_Corp.pdf / Jane_Doe_Cover_Letter_Example_Corp.pdf"""
     comp = re.sub(r"\b(gmbh|ag|kg|co|se|flexco|og|mbh|ltd|inc)\b\.?", " ", job.get("company") or "", flags=re.I)
     comp = "_".join(re.findall(r"[\wÄÖÜäöüß]+", comp)[:4])
     name = cfg["profile"]["name"].replace(" ", "_")

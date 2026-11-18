@@ -1,161 +1,155 @@
-# JobMan — your local, free job search assistant
+# JobMan — a personal job-search and auto-apply assistant
 
-JobMan collects fresh jobs in **Vienna, remote, and student/part-time roles** from many sources. It scores each
-one against your CV and writes a tailored cover letter and CV for the ones you pick. Everything runs on your
-own computer. Clear matches are applied to automatically; you only decide the questionable ones.
+JobMan collects job postings from job boards and company career sites, lets an AI judge how well each one fits
+your CV, writes a tailored cover letter and CV summary, and fills in and submits application forms for the good
+matches. Jobs it isn't sure about go to a **Review** tab where you press *Apply* or *Reject*; anything that needs
+you (a CAPTCHA, a portal account, a question only you can answer) goes to **Needs you**.
 
-## 1. Install (5 minutes)
+It runs on your own computer. Your CV, answers and the job database stay on your machine.
 
-1. Install **Python 3.11 or newer** (python.org; on Windows tick "Add to PATH").
-2. Unzip this folder, open a terminal in it and run:
+## What it can do
+
+**Find jobs**
+- Pulls postings every day from karriere.at, remote job boards (Himalayas, Jobicy, RemoteOK, Remotive,
+  We Work Remotely) and the career sites of the companies you list — Greenhouse, Lever, Ashby, SmartRecruiters,
+  Personio, Recruitee, Workable, Workday, d.vinci and onlyfy boards.
+- Finds a company's career board for you: `discover "Company Name"`.
+- Keeps only jobs in places you can commute to (or remote jobs open to your region), of the types you want
+  (full-time, working student, internship, thesis, …), and drops duplicates and expired postings.
+
+**Judge them**
+- An AI reads each promising job against your CV and gives a score, what you match, what you're missing, the
+  German level and seniority it asks for, and the salary if stated.
+- Learns from your own Apply / Reject decisions.
+- Works on the free Gemini tier: several jobs per AI call and automatic rotation between models.
+
+**Apply**
+- Writes a cover letter for each job in the ad's language, and rewrites the summary of your CV for it — using only
+  facts from your CV.
+- Opens the application page, fills in the form (multi-step wizards, drop-downs, radio buttons, uploads), answers
+  screening questions from your saved answers, and submits.
+- Reads verification codes and confirmation links from a separate application mailbox.
+- Can create candidate accounts on employer portals that require one (optional).
+- Only counts a job as applied when a confirmation appears; otherwise it lands in *Needs you* with a screenshot and
+  the reason.
+- Never guesses personal facts, never solves CAPTCHAs (it fills the form and lets you click Submit), never touches
+  LinkedIn.
+
+**Keep you in the loop**
+- A local dashboard: Review / Needs you / Applied / Interview / Offer / Rejected tabs, job details, one-key
+  Apply (A) and Reject (R), and downloads of the tailored CV and letter as PDF or Word, named after the company.
+- Questions it couldn't answer collect in one place; each answer is reused on every future form.
+- Reads your inbox for replies: confirmations are noted, rejections and interview invitations update the job.
+- Runs by itself every morning, then shows a notification and a health line (last run, problems, AI quota).
+
+> It was built for a job search in Vienna, Austria. Sources, keywords and the company list in
+> `config.example.toml` reflect that — change them to your city and field.
+
+---
+
+## 1. Set it up (about 20 minutes)
+
+**You need:** macOS or Linux (Windows works for everything except the daily schedule), Python 3.11 or newer, Git.
+
+```bash
+git clone <this repository's URL> jobman
+cd jobman
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/playwright install chromium
+cp config.example.toml config.toml
+cp cv.example.md cv.md
+```
+
+Then:
+
+1. **Write your CV** in `cv.md` (Markdown, same structure as the example). Only facts from this file are ever
+   used in letters and forms, so keep it complete and true.
+2. **Edit `config.toml`** — at least:
+   - `[profile]`: name, target roles, skills, languages, `situation` and the `availability*` / `highlight*` sentences.
+   - `[search]`: keywords, places you can commute to, job types.
+   - `[apply.answers]`: the details application forms ask for (name, e-mail, phone, address, work permit,
+     salary expectation, …). Leave a field empty if you'd rather be asked.
+3. **Get a free AI key** (Google Gemini): https://aistudio.google.com/apikey → *Create API key*.
+   Put it in your shell profile (`~/.zshrc` or `~/.bashrc`), never in `config.toml`:
+   ```bash
+   export JOBPILOT_API_KEY="your-key"
    ```
-   pip install -r requirements.txt
-   ```
-   (Optional. Needed only for the Word download buttons.)
-3. **Get a free Adzuna key.** Adzuna is the biggest source for Vienna. Sign up at
-   https://developer.adzuna.com, then paste `app_id` and `app_key` into `config.toml` under `[sources.adzuna]`.
-4. **Pick a free AI model.** Choose one of these:
-   - **Local, fully private:** install Ollama (https://ollama.com), then run `ollama pull qwen2.5:7b`.
-     `config.toml` is already set up for it. You need about 8 GB of RAM.
-   - **Cloud free tier (faster on a weak laptop):** get a Google Gemini API key at
-     https://aistudio.google.com and use the Gemini example in the `[llm]` section.
-     List several models under `models = [...]` (strongest first) to stay on the free tier: when one
-     model's daily quota runs out JobMan switches to the next. Keep the key in the `JOBPILOT_API_KEY`
-     environment variable, not in the file.
-   - **No AI:** set `provider = "none"`. You get keyword matching and template letters.
+   Open a new terminal afterwards. On a Mac you can then move it into the Keychain with
+   `.venv/bin/python -m jobpilot secrets` and delete the line from your shell profile.
 
-## 2. Use it
+`config.toml`, `cv.md`, the database, generated documents and browser sessions are listed in `.gitignore`, so they
+never end up in Git.
 
+## 2. First run — safely
+
+`config.example.toml` starts with **`dry_run = true`**: forms are filled in and screenshotted, but nothing is sent.
+
+```bash
+./start.sh
 ```
-python -m jobpilot serve        # or double-click start.bat (Windows) / start.sh (Mac/Linux)
+
+This opens the dashboard at http://127.0.0.1:8765. Click **Find new jobs**, wait for it to finish, then look at:
+
+- **Review** — jobs to decide on (A = apply, R = reject).
+- **Needs you** — what stopped the script; each job has a note and a screenshot.
+- A job's panel — the AI's view (what you match, the gaps), the salary if stated, and buttons to write and download
+  the cover letter and CV as PDF or Word.
+
+Check a few filled-in forms (the screenshots) and letters. When you trust it, set `dry_run = false` under `[apply]`.
+
+## 3. Run it every day
+
+On a Mac:
+```bash
+deploy/mac_daily.sh          # every day at 08:30; deploy/mac_daily.sh off to stop
 ```
-Your browser opens the dashboard. Click **Find new jobs**, then work through the **Inbox**:
+On Linux, `deploy/server_setup.sh` installs everything and a daily systemd timer (made for a small Ubuntu server).
 
-- **Open posting** takes you to the real ad.
-- **Write cover letter + CV** writes the tailored letter and CV as two small text files in `applications/`.
-  Word and PDF versions are only made when you click a download button (named after you and the company).
-- Mark jobs **Applied → Interview → Offer / Rejected** to track your pipeline.
-- **+ Add job** saves any job you found yourself. Paste a karriere.at, StepStone, willhaben or company link.
-  For LinkedIn, paste the job text too.
+After each run you get a notification, and the dashboard shows when it last ran and whether anything went wrong.
+The log is `run.log`.
 
-Use the filters at the top to show only Vienna, Remote, Werkstudent, Internship, Thesis and so on, and to hide
-jobs that need fluent German.
+## 4. Optional, but makes it apply to more jobs
 
-Command-line equivalents: `python -m jobpilot run`, `list`, `tailor <id>`, `add <url>`.
+| What | Why | How |
+|---|---|---|
+| Sign in once to sites that need an account | Applications on those sites go through on their own | `.venv/bin/python -m jobpilot login karriere.at` (a window opens; sign in; close it) |
+| A separate application mailbox | Codes and confirmation links that sites e-mail are read automatically | Create a Gmail account, turn on 2-step verification, create an *App password*, set `[apply.mailbox]` and `export JOBPILOT_MAILBOX_PASSWORD="…"` |
+| Password for the address you put on forms | Tracks replies (confirmations, invitations, rejections) and sends e-mail applications | Gmail app password → `export JOBPILOT_EMAIL_PASSWORD="…"`; set `[apply.email] enabled = true`. Note: an app password gives full read access to that mailbox |
+| Portal sign-up | Creates candidate accounts on employer portals for you | `[apply.signup] enabled = true` and `export JOBPILOT_PORTAL_PASSWORD="…"` (a password you choose) |
+| More company boards | Applying through company career sites works best | `.venv/bin/python -m jobpilot discover "Company Name"` |
 
-## Auto-apply
+## 5. Commands
 
-Each run sorts scored jobs into three piles (thresholds in `config.toml`, section `[apply]`):
-
-- **Auto-apply:** the AI says "apply", score ≥ `auto_min_score`, no red flags. JobMan writes the letter and CV,
-  opens the employer's form in a hidden browser, fills it and submits.
-- **Review:** in between. Open the **Review** tab and press **A** (apply for me) or **R** (reject).
-- **Auto-skipped:** below `review_min_score` or the AI says "skip".
-
-Jobs it can't finish land in **Needs you** with the reason and the documents ready: sites that need an account
-(join.com, LinkedIn, Workday…), CAPTCHAs, or a form question it can't answer from your CV. Those questions appear
-under **Questions**; answer once and the answer is reused on every later form. Then press "Retry auto-apply".
-
-**Documents:** the letter and CV are written only after the form is confirmed reachable, in one AI call. Only
-the CV's summary is rewritten per job; everything else stays word for word from `cv.md`. For German ads your CV
-is translated once into `cv.de.md` and reused (read it once and correct it). Each job's folder in `applications/`
-holds the PDFs, a screenshot of every filled form step, and `form_problem.png` if it stopped.
-
-**Sites that need an account** (join.com and similar): run `python -m jobpilot login join.com` once, sign in in
-the window that opens and close it. The session is kept in `browser_profile/` (no password is stored) and those
-sites are then applied to automatically. If a site logs you out, run the command again.
-
-**Verification e-mails:** fill `[apply.mailbox]` with the address you apply with (best: a separate one just for
-applications). JobMan reads it read-only to enter the codes or open the confirmation links sites send.
-CAPTCHAs are never solved; those jobs go to Needs you.
-
-Setup: `pip install -r requirements.txt && playwright install chromium`, fill `[apply.answers]`, and set an AI
-model in `[llm]` (without one nothing is auto-applied and letters are plain templates).
-`dry_run = true` (the default) fills forms and saves `form_filled.png` without submitting. Check a few, then set
-`dry_run = false`. Works best on direct employer forms (Ashby, Greenhouse, Lever, Recruitee, Workable, Personio):
-add companies with `python -m jobpilot discover`. Command line: `python -m jobpilot apply [JOB_ID]`.
-
-## 3. Where the jobs come from
-
-| Source | Covers | Key? | Notes |
-|---|---|---|---|
-| **Adzuna (Austria)** | Vienna, all fields | free key | Aggregates hundreds of Austrian boards and company sites; searched with your keywords within 30 km of Wien |
-| **Arbeitnow** | DACH incl. Vienna + remote | no | Pulled straight from company applicant tracking systems; lots of Werkstudent roles |
-| **Company career boards** | the companies you choose | no | Greenhouse, Lever, Ashby, SmartRecruiters, Personio, Workable and Recruitee public APIs: freshest data, direct from the employer |
-| **Himalayas, Jobicy, RemoteOK, Remotive, We Work Remotely** | remote | no | Filtered to roles open to Europe, Austria or worldwide |
-| **Your job-alert e-mails** | karriere.at, LinkedIn, StepStone, AMS "alle jobs", willhaben, jobs.at, Indeed | Gmail app password | See below |
-
-### Add Vienna companies directly (recommended)
+```bash
+.venv/bin/python -m jobpilot run              # the daily pass: inbox, fetch, score, apply
+.venv/bin/python -m jobpilot serve            # the dashboard (./start.sh does the same)
+.venv/bin/python -m jobpilot fetch            # only fetch new jobs
+.venv/bin/python -m jobpilot score            # only score / sort them
+.venv/bin/python -m jobpilot apply [JOB_ID]   # apply to queued jobs (or one)
+.venv/bin/python -m jobpilot finish [JOB_ID]  # fill a form in a visible window; you click Submit (CAPTCHA sites)
+.venv/bin/python -m jobpilot login SITE       # sign in to a site once
+.venv/bin/python -m jobpilot inbox            # check your inbox for replies
+.venv/bin/python -m jobpilot discover "Name"  # find a company's career board
+.venv/bin/python -m unittest discover tests   # run the tests
 ```
-python -m jobpilot discover Bitpanda GoStudent Storyblok refurbed Adverity Anyline PlanRadar Dynatrace "MOSTLY AI" Prewave TTTech Cloudflight craftworks byrd kununu hokify Frequentis
-```
-JobMan checks each name against every supported ATS and adds the boards it finds to `config.toml`. Add any
-company whose careers page you like. If a name isn't found, open their careers page and copy the slug from the
-URL (for example `xyz.jobs.personio.de` → `ats = "personio"`, `slug = "xyz"`).
 
-### karriere.at, LinkedIn, StepStone, AMS
-These sites have no public API and don't allow scraping, so JobMan reads the **job-alert e-mails** they send you:
-1. On each site, create job alerts (Wien + Python / Data / Werkstudent …).
-2. Gmail → Google Account → Security → 2-Step Verification → **App passwords** → create one.
-3. In `config.toml` under `[sources.email_alerts]`, set `enabled = true` and paste the app password.
+## How it decides
 
-JobMan opens your inbox read-only, picks out the job links and adds them to the dashboard. The full job text is
-fetched when you click "Write cover letter + CV".
+- **Fetching:** karriere.at, remote job boards and company career boards (Greenhouse, Lever, Ashby, SmartRecruiters,
+  Personio, Recruitee, Workable, Workday, d.vinci, onlyfy). Jobs outside your places/regions or with excluded title
+  words (senior, lead, …) are filtered out.
+- **Scoring:** a generous pre-filter sends anything that looks like a fit to the AI, several jobs per call, so the free
+  quota (about 20 calls a day per model; JobMan rotates through `[llm] models`) covers 100+ jobs a day.
+- **Sorting:** score ≥ `auto_min_score` and the AI says "apply" → applied automatically; between that and
+  `review_min_score` → Review; below → Auto-skipped.
+- **Applying:** at most `max_per_run` jobs per run, in `parallel` browsers. Personal facts (birth date, gender,
+  nationality, …) are only ever taken from your config, never guessed by the AI. A confirmation must actually appear
+  on the page before a job counts as applied.
+- **Never automated:** CAPTCHAs and bot checks (use `finish`), and LinkedIn (accounts get banned for automation).
 
-## 4. Keep it updated automatically
-**On this Mac a daily run is installed:** every day at 08:30 (or when the Mac next wakes) macOS runs
-`python -m jobpilot run` and appends the output to `run.log`. Turn it off with
-`launchctl bootout gui/$(id -u)/com.jobpilot.daily`; the file is `~/Library/LaunchAgents/com.jobpilot.daily.plist`.
-One run uses at most 40 scoring calls and 8 applications, sized to the free Gemini quota; if the quota runs out
-anyway, the remaining jobs simply wait for the next day.
+## Good to know
 
-Run `python -m jobpilot run` on a schedule, for example every morning:
-- **Windows:** Task Scheduler → Create Basic Task → Daily → Program `python`, arguments `-m jobpilot run`,
-  "Start in" = this folder.
-- **Mac/Linux:** `crontab -e` → `0 8 * * * cd /path/to/jobpilot && python3 -m jobpilot run`
-
-## 5. Tune it
-Everything is in `config.toml`: keywords (German and English), job types, commute towns, excluded title words
-(senior, lead …), max job age, and how many jobs the AI scores per run. After editing filters, run
-`python -m jobpilot rescore`.
-
-Your data stays in `jobpilot.db` (SQLite) and `applications/`. Nothing is uploaded anywhere, except the job text
-and CV sent to the AI provider, and only if you chose a cloud model.
-
-## Respecting the sources
-JobMan only uses official public APIs and feeds, at a gentle pace. Some sources ask for a link back or
-attribution (Arbeitnow, RemoteOK, Jobicy, Himalayas, Remotive). That matters if you ever publish what you
-collect; for personal use it doesn't apply. Remotive asks for no more than about 4 requests a day, and Jobicy
-for only a few, so don't schedule `run` more often than a few times a day.
-
-## Forms the script may not submit (CAPTCHA)
-
-Some sites (e.g. Greenhouse) block an automated Submit. Those jobs land under **Needs you**. Run
-
-    python -m jobpilot finish [JOB_ID]
-
-A browser window opens with the form filled in; check it and click Submit yourself. The job moves to
-**Applied** once the confirmation page appears. Without a JOB_ID it goes through every such job in turn.
-
-## First-time setup from GitHub
-
-`config.toml` and your CV are kept out of the repository (personal data). After cloning:
-
-    cp config.example.toml config.toml     # then fill in [profile] and [apply.answers]
-    # put your CV next to it as cv.md (or a PDF, see cv_file)
-
-## Reply tracking
-
-Each run (and `python -m jobpilot inbox`) reads your inbox read-only and looks for mail about jobs you applied to:
-confirmations are noted on the job, rejections move it to **Rejected**, explicit invitations to **Interview**.
-It reads the application mailbox (`JOBPILOT_MAILBOX_PASSWORD`) and, if you set `JOBPILOT_EMAIL_PASSWORD`
-(a Gmail app password for the address you put on forms), that one too.
-
-## Speed and quota
-
-- `parallel = 2` under `[apply]`: browsers filling forms at the same time. Jobs on the same site never run in parallel.
-- Scoring uses a short profile of you (`cv_profile.txt`, rebuilt when the CV changes) instead of the whole CV.
-
-## Tests
-
-    python -m unittest discover tests
+- Read your first letters. The AI is told to use only facts from your CV, but you are the one applying.
+- Respect the sites: JobMan uses public feeds and pages at a modest pace. Don't raise the limits much.
+- Free AI quotas change; if scoring stops early, the rest simply waits for the next day.

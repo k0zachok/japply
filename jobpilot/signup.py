@@ -2,7 +2,7 @@
 
 Off unless you switch it on: [apply.signup] enabled = true AND the JOBPILOT_PORTAL_PASSWORD environment variable
 is set (you choose that password; JobMan never invents one). Accounts are registered with the application mailbox
-(the application mailbox), so the confirmation e-mail can be read automatically. Every account created is listed in
+([apply.mailbox] user), so the confirmation e-mail can be read automatically. Every account created is listed in
 portal_accounts.json next to the database.
 """
 from __future__ import annotations

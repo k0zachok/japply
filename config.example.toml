@@ -20,6 +20,15 @@ skills = [
 german_level = "B1"          # jobs that demand fluent/C1 German get flagged + penalised
 english_level = "C1"
 max_years_required = 2       # flag jobs that ask for more years than this
+city = "Vienna"                 # where you live / want to work
+situation = ""                  # one or two sentences the AI should know, e.g. "Currently in a part-time MSc. Lives in Vienna."
+# Sentences used in cover letters (availability) and in the fallback letter when the AI is unavailable (highlight).
+availability = ""               # e.g. "available full-time from March"
+availability_de = ""            # same in German, for German-language ads
+availability_student = ""       # for internships / working-student jobs, e.g. "available 20 hours a week alongside my studies"
+availability_student_de = ""
+highlight = ""                  # your strongest experience in one sentence
+highlight_de = ""
 
 [search]
 # Used for keyword-search sources (Adzuna, Himalayas, Jobicy) — German + English on purpose.
@@ -48,7 +57,7 @@ exclude_title_words = ["senior", "sr.", "lead", "principal", "head of", "staff e
 # ---------------- Sources ----------------
 # Biggest Vienna feed. Free key (2 min): https://developer.adzuna.com  -> paste below.
 [sources.adzuna]
-enabled = true
+enabled = false            # needs a free key from developer.adzuna.com (the free tier is a 25-call trial)
 app_id = ""
 app_key = ""
 country = "at"
@@ -142,7 +151,7 @@ min_keyword_score = 20       # (kept for reference; the pre-filter in match.wort
 # ---------------- Auto-apply ----------------
 [apply]
 enabled = true
-dry_run = false              # false = really submit. true = fill the form and screenshot only.
+dry_run = true               # start with true: forms are filled and screenshotted, nothing is sent. Set false once you trust it.
 auto_min_score = 75          # AI says "apply", score >= this, no red flags  -> applied automatically
 review_min_score = 30        # between the two -> Review tab (you press Apply or Reject); below -> skipped
 max_per_run = 8                # at most this many applications per run (sized to the free Gemini quota)
@@ -167,7 +176,7 @@ linkedin = ""
 github = ""
 birth_date = ""                 # YYYY-MM-DD — many Austrian forms require it
 salutation = ""                 # "Herr" / "Frau" / "Divers" — German forms ask for the Anrede
-nationality = ""                # e.g. "Ukrainian" — some Austrian forms ask (Österreich / andere)
+nationality = ""                # e.g. "Italian" — some Austrian forms ask (Österreich / andere)
 address = ""                 # street and number
 postcode = ""
 city = "Vienna"
@@ -178,7 +187,7 @@ work_permit = ""             # e.g. "Yes, I have the right to work in Austria (�
 
 # Jobs that ask for applications by e-mail. Gmail: use an App Password.
 [apply.email]
-enabled = true
+enabled = false
 smtp_host = "smtp.gmail.com"
 smtp_port = 587
 user = "you@example.com"
@@ -195,7 +204,7 @@ app_password = ""
 enabled = false
 
 [apply.mailbox]
-enabled = true
+enabled = false
 imap_host = "imap.gmail.com"
 user = "you@example.com"
 app_password = ""
@@ -206,10 +215,53 @@ db_file = "jobpilot.db"
 applications_dir = "applications"
 port = 8765
 
+# Company career boards (Vienna-focused examples; replace with employers near you).
+# Find more with:  python -m jobpilot discover "Company Name"
+
+[[companies]]
+name = "n8n"
+ats = "ashby"
+slug = "n8n"
+
+[[companies]]
+name = "Sentry"
+ats = "ashby"
+slug = "sentry"
+
+[[companies]]
+name = "Vienna Insurance Group"
+ats = "dvinci"
+slug = "dvinci.group.vig"
+
+[[companies]]
+name = "Wiener Stadtwerke"
+ats = "dvinci"
+slug = "jobs.wienerstadtwerke.at"
+
+[[companies]]
+name = "Bitmovin"
+ats = "greenhouse"
+slug = "bitmovin"
+
 [[companies]]
 name = "Bitpanda"
 ats = "greenhouse"
 slug = "bitpanda"
+
+[[companies]]
+name = "Eversports"
+ats = "greenhouse"
+slug = "eversports"
+
+[[companies]]
+name = "Fiskaly"
+ats = "greenhouse"
+slug = "fiskaly"
+
+[[companies]]
+name = "GitLab"
+ats = "greenhouse"
+slug = "gitlab"
 
 [[companies]]
 name = "GoStudent"
@@ -217,29 +269,9 @@ ats = "greenhouse"
 slug = "gostudent"
 
 [[companies]]
-name = "Storyblok"
+name = "Jumio"
 ats = "greenhouse"
-slug = "storyblok"
-
-[[companies]]
-name = "refurbed"
-ats = "greenhouse"
-slug = "refurbed"
-
-[[companies]]
-name = "Adverity"
-ats = "workable"
-slug = "adverity"
-
-[[companies]]
-name = "PlanRadar"
-ats = "greenhouse"
-slug = "planradar"
-
-[[companies]]
-name = "Prewave"
-ats = "personio"
-slug = "prewave"
+slug = "jumio"
 
 [[companies]]
 name = "kununu"
@@ -247,9 +279,124 @@ ats = "greenhouse"
 slug = "kununu"
 
 [[companies]]
-name = "hokify"
+name = "N26"
+ats = "greenhouse"
+slug = "n26"
+
+[[companies]]
+name = "PlanRadar"
+ats = "greenhouse"
+slug = "planradar"
+
+[[companies]]
+name = "refurbed"
+ats = "greenhouse"
+slug = "refurbed"
+
+[[companies]]
+name = "Storyblok"
+ats = "greenhouse"
+slug = "storyblok"
+
+[[companies]]
+name = "World4You"
+ats = "greenhouse"
+slug = "world4you"
+
+[[companies]]
+name = "XUND"
+ats = "greenhouse"
+slug = "xund"
+
+[[companies]]
+name = "Unzer"
+ats = "lever"
+slug = "unzer"
+
+[[companies]]
+name = "Cropster"
+ats = "personio"
+slug = "cropster"
+
+[[companies]]
+name = "IW Group"
+ats = "personio"
+slug = "iwgroup"
+
+[[companies]]
+name = "Meister"
+ats = "personio"
+slug = "meister"
+
+[[companies]]
+name = "MP Corporate Finance"
+ats = "personio"
+slug = "mp-corporate-finance"
+
+[[companies]]
+name = "neoom"
+ats = "personio"
+slug = "neoom"
+
+[[companies]]
+name = "Prewave"
+ats = "personio"
+slug = "prewave"
+
+[[companies]]
+name = "Tito & Friends"
+ats = "personio"
+slug = "titoandfriends"
+
+[[companies]]
+name = "CELUM GmbH"
+ats = "recruitee"
+slug = "celumgmbh"
+
+[[companies]]
+name = "Erste Digital GmbH"
+ats = "recruitee"
+slug = "erstedigital"
+
+[[companies]]
+name = "Netconomy GmbH"
+ats = "recruitee"
+slug = "netconomy"
+
+[[companies]]
+name = "UBIMET GmbH"
+ats = "recruitee"
+slug = "ubimet"
+
+[[companies]]
+name = "AbbVie"
 ats = "smartrecruiters"
-slug = "hokifygmbh"
+slug = "AbbVie@at"
+
+[[companies]]
+name = "Bosch Group"
+ats = "smartrecruiters"
+slug = "BoschGroup@at"
+
+[[companies]]
+name = "ServiceNow"
+ats = "smartrecruiters"
+slug = "ServiceNow@at"
+
+[[companies]]
+name = "Delivery Hero"
+ats = "smartrecruiters"
+slug = "deliveryhero@at"
+
+[[companies]]
+name = "Entain"
+ats = "smartrecruiters"
+slug = "entain@at"
+
+[[companies]]
+name = "firstbird GmbH"
+ats = "smartrecruiters"
+slug = "firstbirdgmbh"
 
 [[companies]]
 name = "Frequentis"
@@ -257,11 +404,101 @@ ats = "smartrecruiters"
 slug = "frequentis"
 
 [[companies]]
-name = "Red Bull"
+name = "hokify"
 ats = "smartrecruiters"
-slug = "redbull"
+slug = "hokifygmbh"
 
 [[companies]]
-name = "N26"
+name = "Red Bull"
+ats = "smartrecruiters"
+slug = "redbull@at"
+
+[[companies]]
+name = "Sportradar"
+ats = "smartrecruiters"
+slug = "sportradar@at"
+
+[[companies]]
+name = "Tipico"
+ats = "smartrecruiters"
+slug = "tipico@at"
+
+[[companies]]
+name = "VERBUND AG"
+ats = "smartrecruiters"
+slug = "verbundag"
+
+[[companies]]
+name = "Adverity"
+ats = "workable"
+slug = "adverity"
+
+[[companies]]
+name = "A1 Telekom Austria"
+ats = "workday"
+slug = "a1group.wd3/karriere_at"
+
+[[companies]]
+name = "Austrian Power Grid"
+ats = "onlyfy"
+slug = "austrian-power-grid"
+
+[[companies]]
+name = "Wolf Theiss"
+ats = "onlyfy"
+slug = "wolftheiss"
+
+[[companies]]
+name = "ADMIRAL Technologies"
+ats = "onlyfy"
+slug = "admiral"
+
+[[companies]]
+name = "BDO Austria"
+ats = "onlyfy"
+slug = "bdo"
+
+[[companies]]
+name = "Magenta Telekom"
+ats = "onlyfy"
+slug = "magenta"
+
+[[companies]]
+name = "Valneva"
+ats = "workable"
+slug = "valneva"
+
+[[companies]]
+name = "MYFLEXBOX"
+ats = "recruitee"
+slug = "myflexbox"
+
+[[companies]]
+name = "REWE Group Österreich"
+ats = "smartrecruiters"
+slug = "REWEInternationalDienstleistungsgesellschaftmbH@at"
+
+[[companies]]
+name = "IMS Nanofabrication"
+ats = "smartrecruiters"
+slug = "IMSNanofabricationGmbH@at"
+
+[[companies]]
+name = "AGRANA"
+ats = "workday"
+slug = "agrana.wd3/Careers"
+
+[[companies]]
+name = "proALPHA"
 ats = "greenhouse"
-slug = "n26"
+slug = "proalphagroup"
+
+[[companies]]
+name = "Europ Assistance"
+ats = "personio"
+slug = "europ-assistance"
+
+[[companies]]
+name = "ZETA"
+ats = "onlyfy"
+slug = "zeta"

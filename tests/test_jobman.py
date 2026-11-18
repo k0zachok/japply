@@ -198,7 +198,7 @@ if __name__ == "__main__":
 
 class NewForms(unittest.TestCase):
     def test_nationality_options(self):
-        self.assertEqual(apply._pick_option(["Österreich", "Andere Nationalität"], "Ukrainian"), "Andere Nationalität")
+        self.assertEqual(apply._pick_option(["Österreich", "Andere Nationalität"], "Italian"), "Andere Nationalität")
         self.assertEqual(apply._pick_option(["Österreich", "Andere Nationalität"], "Österreich"), "Österreich")
 
     def test_taken_down_postings(self):

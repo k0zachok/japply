@@ -1,5 +1,4 @@
-# JobPilot runs on plain Python 3.11+ with no packages at all.
-# These two are optional:
-python-docx>=1.1   # .docx cover letters and CVs (otherwise you get .txt/.md)
-pypdf>=4.0         # only if you point cv_file at a PDF instead of cv.md
+# JobMan needs Python 3.11+ and these packages (install with: pip install -r requirements.txt)
+python-docx>=1.1   # Word downloads of letters and CVs
+pypdf>=4.0         # CV page-fitting, and reading a CV given as PDF
 playwright>=1.49   # auto-apply (fills application forms). After installing run: playwright install chromium

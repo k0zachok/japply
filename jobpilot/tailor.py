@@ -54,13 +54,15 @@ def detect_lang(text: str) -> str:
     return "de" if de > en else "en"
 
 
-def availability(types: str, lang: str) -> str:
+def availability(types: str, lang: str, cfg: dict | None = None) -> str:
+    """The availability sentence of the letter, from [profile] availability_* in config.toml."""
+    p = (cfg or {}).get("profile", {})
     student = any(t in (types or "") for t in ("working_student", "internship", "thesis", "part_time"))
-    if lang == "de":
-        return ("neben meinem berufsbegleitenden MSc AI & Data Science  flexibel verfügbar"
-                if student else "ab sofort in Vollzeit verfügbar – mein MSc  ist ein Abendstudium")
-    return ("available part-time alongside my evening MSc in AI & Data Science "
-            if student else "available full-time immediately — my MSc  is an evening programme")
+    key = ("availability_student" if student else "availability") + ("_de" if lang == "de" else "")
+    default = {"availability": "available to start soon", "availability_de": "kurzfristig verfügbar",
+               "availability_student": "available part-time alongside my studies",
+               "availability_student_de": "neben meinem Studium flexibel verfügbar"}
+    return p.get(key) or default[key]
 
 
 BOTH_PROMPT = """Prepare a job application in {lang_name}: a cover letter and a new summary paragraph for the CV.
@@ -136,7 +138,7 @@ def tailor(cfg: dict, job: dict, llm, log=print, strict: bool = False) -> Path:
     lang = (json.loads(job["ai_json"]).get("language") if job.get("ai_json") else None) or detect_lang(desc + job["title"])
     lang_name = "German" if lang == "de" else "English"
     name = cfg["profile"]["name"]
-    avail = availability(job.get("types", ""), lang)
+    avail = availability(job.get("types", ""), lang, cfg)
     folder = app_folder(cfg, job)
 
     letter = cv_md = None
@@ -179,17 +181,14 @@ def _template_letter(cfg, job, lang, avail) -> str:
     d = (job.get("description") or "").lower()
     skills = [nice.get(s, s.capitalize() if s.islower() and " " not in s else s)
               for s in cfg["profile"]["skills"] if re.search(rf"(?<![a-z]){re.escape(s)}(?![a-z])", d)][:5]
-    name = cfg["profile"]["name"]
+    name, p = cfg["profile"]["name"], cfg["profile"]
     if lang == "de":
         return (f"Sehr geehrte Damen und Herren,\n\nmit großem Interesse habe ich Ihre Ausschreibung „{job['title']}“ "
-                f"bei {job.get('company') or 'Ihrem Unternehmen'} gelesen.\n\nIn meiner letzten Position habe ich Produktions-Scraper für "
-                f"über 20 Bewerbermanagementsysteme gebaut und Python-Pipelines entwickelt, die Hunderttausende "
-                f"Stellenanzeigen in ein einheitliches MongoDB-Schema überführen. "
+                f"bei {job.get('company') or 'Ihrem Unternehmen'} gelesen.\n\n{p.get('highlight_de') or p.get('highlight') or ''} "
                 f"{('Besonders passen meine Erfahrungen mit ' + ', '.join(skills) + '. ') if skills else ''}"
                 f"\n\nIch bin {avail}.\n\nIch freue mich auf ein Gespräch.\n\nMit freundlichen Grüßen\n{name}")
     return (f"Dear Hiring Team,\n\nI'd like to apply for the {job['title']} role at {job.get('company') or 'your company'}.\n\n"
-            f"In my last role I built production scrapers for 20+ applicant tracking systems and Python pipelines "
-            f"that turn hundreds of thousands of job postings into one standard MongoDB schema. "
+            f"{p.get('highlight') or ''} "
             f"{('This role asks for ' + ', '.join(skills) + ', which I use day to day. ') if skills else ''}"
             f"\n\nI am {avail}.\n\nI'd welcome the chance to talk.\n\nKind regards\n{name}")
 
@@ -216,7 +215,8 @@ def _docx_letter(text: str, name: str, cfg: dict, out: Path):
     doc = Document()
     st = doc.styles["Normal"]
     st.font.name, st.font.size = "Calibri", Pt(11)
-    doc.add_paragraph(f"{name}\nVienna, Austria\n{date.today():%d.%m.%Y}")
+    a = cfg.get("apply", {}).get("answers", {})
+    doc.add_paragraph(f"{name}\n{', '.join(filter(None, [a.get('city'), a.get('country')]))}\n{date.today():%d.%m.%Y}")
     for para in text.split("\n\n"):
         doc.add_paragraph(para.strip())
     doc.save(out)

@@ -67,7 +67,8 @@ Then:
    used in letters and forms, so keep it complete and true.
 2. **Edit `config.toml`** — at least:
    - `[profile]`: name, target roles, skills, languages, `situation` and the `availability*` / `highlight*` sentences.
-   - `[search]`: keywords, places you can commute to, job types.
+   - `[search]`: keywords, places you can commute to, job types — and, if you're not looking for a tech / data / IT
+     job, `relevant_titles` / `other_titles` (which job titles are worth sending to the AI).
    - `[apply.answers]`: the details application forms ask for (name, e-mail, phone, address, work permit,
      salary expectation, …). Leave a field empty if you'd rather be asked.
 3. **Get a free AI key** (Google Gemini): https://aistudio.google.com/apikey → *Create API key*.
@@ -139,7 +140,7 @@ The log is `run.log`.
 - **Fetching:** karriere.at, remote job boards and company career boards (Greenhouse, Lever, Ashby, SmartRecruiters,
   Personio, Recruitee, Workable, Workday, d.vinci, onlyfy). Jobs outside your places/regions or with excluded title
   words (senior, lead, …) are filtered out.
-- **Scoring:** a generous pre-filter sends anything that looks like a fit to the AI, several jobs per call, so the free
+- **Scoring:** a generous pre-filter (job title words, set in `[search]`; tech / data / IT by default) sends anything that looks like a fit to the AI, several jobs per call, so the free
   quota (about 20 calls a day per model; JobMan rotates through `[llm] models`) covers 100+ jobs a day.
 - **Sorting:** score ≥ `auto_min_score` and the AI says "apply" → applied automatically; between that and
   `review_min_score` → Review; below → Auto-skipped.

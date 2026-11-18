@@ -38,6 +38,12 @@ keywords = [
   "werkstudent informatik", "werkstudent python", "working student software",
   "praktikum data", "praktikum software", "masterarbeit data science",
 ]
+# Which job titles go to the AI for scoring (the free quota is limited, so obviously unrelated jobs are skipped).
+# Words or word beginnings, case-insensitive; regex is allowed. A job is scored if its title contains one of
+# relevant_titles — or, for student jobs (internship, working student, thesis), unless it contains one of other_titles.
+# Leave both commented out to use the built-in tech / data / IT lists. For another field, set your own, e.g.:
+# relevant_titles = ["marketing", "brand", "content", "social media", "communication", "kommunikation", "pr\\b"]
+# other_titles    = ["software", "entwickl", "engineer", "verkäuf", "pflege", "lager", "fahrer", "koch"]
 # Places you can commute to. Postcodes 1010–1230 are recognised automatically.
 commute_locations = [
   "wien", "vienna", "schwechat", "mödling", "klosterneuburg", "wiener neudorf",

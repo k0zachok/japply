@@ -196,6 +196,7 @@ def scoring_profile(cfg: dict, llm, log=print) -> str:
 
 # Pre-filter for the AI. Deliberately generous: anything that looks like a tech / data / IT role, or any student
 # position you can commute to, goes to the AI. Only titles that are clearly another profession are left out.
+# These are the defaults; [search] relevant_titles / other_titles in config.toml replace them (see prefilter()).
 RELEVANT = re.compile(
     r"software|entwickl|develop|programm|engineer|ingenieur|data|daten|analy[st]|statisti|\bit\b|it-|informatik|"
     r"devops|cloud|platform|plattform|backend|frontend|full.?stack|web|python|java|\bsql\b|\bai\b|\bki\b|"
@@ -213,15 +214,32 @@ OTHER_JOB = re.compile(
 STUDENT = ("intern", "working_student", "trainee", "thesis")
 
 
-def worth_scoring(r) -> bool:
+_NOTHING = re.compile(r"(?!x)x")
+
+
+def _words(words) -> re.Pattern:
+    """Title words/word beginnings from config (regex allowed) → one pattern; an empty list matches nothing."""
+    words = [w.strip() for w in words if w and w.strip()]
+    return re.compile("|".join(f"(?:{w})" for w in words), re.I) if words else _NOTHING
+
+
+def prefilter(cfg) -> tuple[re.Pattern, re.Pattern]:
+    """(relevant, other-profession) title patterns: from [search] relevant_titles / other_titles, else the defaults."""
+    s = cfg.get("search", {})
+    rel = _words(s["relevant_titles"]) if "relevant_titles" in s else RELEVANT
+    other = _words(s["other_titles"]) if "other_titles" in s else OTHER_JOB
+    return rel, other
+
+
+def worth_scoring(r, relevant=RELEVANT, other=OTHER_JOB) -> bool:
     """Should this job go to the AI? Generous on purpose — see RELEVANT / OTHER_JOB above."""
     title, kw = r["title"] or "", r["kw_score"] or 0
     student = any(t in (r["types"] or "") for t in STUDENT) and r["where_ok"] != "remote"
     if kw >= 20:
         return True
-    if RELEVANT.search(title):
+    if relevant.search(title):
         return True
-    if student and not OTHER_JOB.search(title):
+    if student and not other.search(title):
         return True
     return False
 
@@ -274,9 +292,10 @@ def ai_score_all(cfg: dict, con, llm, log=print) -> int:
     from .pipeline import ensure_description
     lc = cfg["llm"]
     batch, budget = max(1, int(lc.get("score_batch", 6))), int(lc.get("score_top_n", 40))   # budget = AI calls per run
+    rel, other = prefilter(cfg)
     cands = [r for r in con.execute(
         "SELECT * FROM jobs WHERE status IN ('new','saved') AND ai_score IS NULL "
-        "ORDER BY (where_ok IN ('vienna','hybrid')) DESC, kw_score DESC, first_seen DESC").fetchall() if worth_scoring(r)]
+        "ORDER BY (where_ok IN ('vienna','hybrid')) DESC, kw_score DESC, first_seen DESC").fetchall() if worth_scoring(r, rel, other)]
     if not cands:
         return 0
     cv = scoring_profile(cfg, llm, log)

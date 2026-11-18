@@ -230,3 +230,28 @@ class Signup(unittest.TestCase):
         for t in ("Create a new applicant profile", "Jetzt registrieren", "Konto erstellen", "Sign up"):
             self.assertTrue(signup.REGISTER.search(t), t)
         self.assertFalse(signup.REGISTER.search("Log in"))
+
+
+class PrefilterTest(unittest.TestCase):
+    def job(self, title, types=""):
+        return {"title": title, "kw_score": 0, "types": types, "where_ok": "vienna"}
+
+    def test_default_is_tech(self):
+        from jobpilot.match import prefilter, worth_scoring
+        rel, other = prefilter({"search": {}})
+        self.assertTrue(worth_scoring(self.job("Junior Data Analyst"), rel, other))
+        self.assertFalse(worth_scoring(self.job("Marketing Manager"), rel, other))
+
+    def test_own_field(self):
+        from jobpilot.match import prefilter, worth_scoring
+        rel, other = prefilter({"search": {"relevant_titles": ["marketing", "brand"], "other_titles": ["software"]}})
+        self.assertTrue(worth_scoring(self.job("Marketing Manager"), rel, other))
+        self.assertFalse(worth_scoring(self.job("Junior Data Analyst"), rel, other))
+        self.assertFalse(worth_scoring(self.job("Software Praktikum", "intern"), rel, other))
+        self.assertTrue(worth_scoring(self.job("Praktikum Kommunikation", "intern"), rel, other))
+
+    def test_empty_other_list_excludes_nothing(self):
+        from jobpilot.match import prefilter, worth_scoring
+        rel, other = prefilter({"search": {"relevant_titles": [], "other_titles": []}})
+        self.assertTrue(worth_scoring(self.job("Verkäufer Praktikum", "intern"), rel, other))
+        self.assertFalse(worth_scoring(self.job("Verkäufer"), rel, other))

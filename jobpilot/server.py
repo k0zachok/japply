@@ -109,6 +109,12 @@ def make_handler(cfg):
                     return self._send(200, {"last": last, "models": len([m for m in models if m]),
                                             "spent": len(spent), "unscored": waiting,
                                             "resets": min(spent.values()) if spent else None})
+                if u.path == "/api/gaps":         # ?min=40 -> what the AI keeps listing as gaps, grouped
+                    from .insights import gap_report
+                    con = connect(cfg)
+                    rep = gap_report(con, int((q.get("min") or ["40"])[0]))
+                    con.close()
+                    return self._send(200, rep)
                 if u.path == "/api/progress":
                     return self._send(200, {"busy": State.busy, "log": State.log[-300:],
                                             "dry_run": bool(cfg.get("apply", {}).get("dry_run", True))})

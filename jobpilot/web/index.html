@@ -76,6 +76,7 @@
   <button onclick="openAdd()">+ Add job</button>
   <button onclick="openQuestions()" id="qbtn">Questions</button>
   <button onclick="openSources()">Sources</button>
+  <button onclick="openGaps()" title="What the AI keeps listing as missing — ideas for your CV">Gaps</button>
   <button class="primary" id="refresh" onclick="refresh()">↻ Find new jobs</button>
 </header>
 
@@ -107,6 +108,10 @@
 
 <dialog id="dlgLog"><h3 style="margin-top:0">Finding new jobs…</h3><pre class="log" id="log"></pre><button onclick="dlgLog.close()">Close</button></dialog>
 <dialog id="dlgQ"><h3 style="margin-top:0">Questions from application forms</h3><div id="qs"></div><button onclick="dlgQ.close()">Close</button></dialog>
+<dialog id="dlgGaps"><h3 style="margin-top:0">Your most common gaps</h3>
+  <p class="count">Over jobs the AI scored at least <input type="number" id="gapmin" value="40" min="0" max="90" step="5" style="width:60px;margin:0" onchange="openGaps()">.
+  Counted from the AI's gap notes, so roughly. Never add skills you don't have — learn them or state them more clearly.</p>
+  <div id="gaps"></div><button onclick="dlgGaps.close()">Close</button></dialog>
 <dialog id="dlgSrc"><h3 style="margin-top:0">Sources</h3><div id="src"></div><br><button onclick="dlgSrc.close()">Close</button></dialog>
 
 <script>
@@ -271,6 +276,18 @@ async function openQuestions() {
       <input type="text" value="${esc(q.answer || "")}" placeholder="your answer (reused for every future form)" onchange="saveAnswer('${esc(q.key)}', this.value)"></p>`; }).join("")
     : `<p class="count">No open questions. When a form asks something the script can't answer from your CV, it shows up here.</p>`;
   dlgQ.showModal();
+}
+async function openGaps() {
+  const g = await (await fetch("/api/gaps?min=" + ($("gapmin").value || 40))).json();
+  $("gaps").innerHTML = !g.jobs ? `<p class="count">No scored jobs at this score yet.</p>` :
+    `<p><b>${g.jobs}</b> jobs</p>` + g.categories.map(c => `<details style="margin-bottom:6px"><summary>
+      <b>${esc(c.label)}</b> — ${c.count} jobs (${c.share}%)
+      <div style="height:5px;background:var(--line);border-radius:3px;margin-top:3px"><div style="height:5px;width:${c.share}%;background:var(--acc);border-radius:3px"></div></div></summary>
+      ${c.tip ? `<p class="count">${esc(c.tip)}</p>` : ""}
+      ${c.jobs.map(j => `<div class="count"><a href="#" onclick="dlgGaps.close();show('${esc(j.id)}');return false">${esc(j.title)}</a> · ${esc(j.company || "")} · ${j.score}</div>`).join("")}
+      </details>`).join("") +
+    (g.missing.length ? `<h4>Most often listed as missing</h4><p class="count">${g.missing.map(m => `${esc(m.item)} (${m.count})`).join(" · ")}</p>` : "");
+  if (!dlgGaps.open) dlgGaps.showModal();
 }
 async function saveAnswer(key, answer) { await fetch("/api/answer", {method:"POST", body: JSON.stringify({key, answer})}); countQuestions(); }
 async function countQuestions() {

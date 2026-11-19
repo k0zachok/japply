@@ -64,7 +64,9 @@ def make_handler(cfg):
                     only = q.get("only", [""])[0] == "filtered"
                     rows = con.execute(
                         "SELECT id, source, title, company, location, posted_at, first_seen, types, where_ok, "
-                        "flags, kw_score, ai_score, status, app_dir, apply_note "
+                        "flags, kw_score, ai_score, status, app_dir, apply_note, applied_at, "
+                        "json_extract(IIF(json_valid(ai_json), ai_json, NULL), '$.verdict') verdict, json_extract(IIF(json_valid(ai_json), ai_json, NULL), '$.salary') ai_salary, "
+                        "json_extract(IIF(json_valid(ai_json), ai_json, NULL), '$.german_required') german, json_extract(IIF(json_valid(ai_json), ai_json, NULL), '$.seniority') level "
                         "FROM jobs WHERE status " + ("= 'filtered' " if only else "!= 'filtered' ") +
                         "ORDER BY COALESCE(ai_score, kw_score) DESC, first_seen DESC LIMIT " + ("500" if only else "3000")).fetchall()
                     n = con.execute("SELECT COUNT(*) FROM jobs WHERE status='filtered'").fetchone()[0]

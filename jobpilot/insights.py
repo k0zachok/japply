@@ -60,3 +60,74 @@ def gap_report(con, min_score: int = 40) -> dict:
     cats.sort(key=lambda c: -c["count"])
     return {"jobs": n, "min_score": min_score, "categories": cats,
             "missing": [{"item": k, "count": v} for k, v in missing.most_common(20) if v > 1]}
+
+
+# ---------- salary: one short, readable line ("€3,143 gross / month") out of whatever the ad says ----------
+_CUR = r"(?:€|eur(?:o)?(?![a-z]))"
+_NUM = r"\d{1,3}(?:[.,' ]\d{3})+(?:[.,]\d{1,2})?|\d{4,6}(?:[.,]\d{1,2})?|\d{1,3}(?:[.,]\d)?\s?k\b|\d{1,3}(?:[.,]\d{1,2})?"
+_AMOUNT = re.compile(rf"(?:{_CUR}\s?(?P<a>{_NUM}))|(?:(?P<b>{_NUM})\s?(?:,-|\.-|-)?\s?{_CUR})", re.I)
+_PERIOD = [("month", r"monat|month|mtl|/\s?m\b|p\.?\s?m\b"), ("year", r"jahr|year|annual|jährl|p\.?\s?a\b|/\s?a\b"),
+           ("hour", r"pro stunde|per hour|hourly|stundenlohn|/\s?(?:h|std)\b")]
+_RANGE_SEP = r"\s*(?:-|–|—|bis|to)\s*"
+
+
+def _value(s: str) -> float | None:
+    s = s.strip().lower().replace(" ", "").replace("'", "")
+    if s.endswith("k"):
+        return float(s[:-1].replace(",", ".")) * 1000
+    s = re.sub(r"[.,]\d{1,2}$", "", s) if re.search(r"[.,]\d{3}", s) or len(re.sub(r"\D", "", s)) > 4 else s
+    s = re.sub(r"[.,]", "", s) if re.search(r"[.,]\d{3}$", s) or re.search(r"[.,]\d{3}[.,]", s) else re.sub(r"[.,]\d{1,2}$", "", s)
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def salary_line(text: str) -> str:
+    """'EUR 2.064,00 brutto pro Monat' -> '€2,064 gross / month'; '' if no plausible salary is stated."""
+    if not text:
+        return ""
+    for m in _AMOUNT.finditer(text):
+        v = _value(m.group("a") or m.group("b"))
+        after = text[m.end(): m.end() + 90].lower()
+        before = text[max(0, m.start() - 70): m.start()].lower()
+        explicit = next((p for p, pat in _PERIOD if re.search(pat, after[:45])), None) \
+            or next((p for p, pat in _PERIOD if re.search(pat, before[-45:])), None)
+        if not v or v > 400000 or v < (8 if explicit == "hour" else 300):     # not a salary (dates, counts, small fees)
+            continue
+        lo = hi = None
+        nxt = _AMOUNT.search(text, m.end(), m.end() + 25)                       # "€3,000 – €3,800"
+        if nxt and re.fullmatch(_RANGE_SEP, text[m.end():nxt.start()]):
+            hi = _value(nxt.group("a") or nxt.group("b"))
+        prev = re.search(rf"({_NUM}){_RANGE_SEP}$", text[max(0, m.start() - 30): m.start()])   # "3.000 bis 3.800 €", "40-55k EUR"
+        if prev and not hi:
+            lo, hi = _value(prev.group(1)), v
+            if lo and hi and lo < 1000 <= hi and "k" in (m.group(0) or "").lower():
+                lo *= 1000
+            v = lo or v
+        around = before + after
+        period = explicit or next((p for p, pat in _PERIOD[:2] if re.search(pat, around)), None) \
+            or ("hour" if v < 100 else "month" if v < 12000 else "year")
+        gross = "gross " if re.search(r"brutto|gross", around) else "net " if re.search(r"netto|\bnet\b", around) else ""
+        word = "from " if re.search(r"(?:\bab|\bfrom|mindest|minimum|\bmin\b|at least|starts? at|starting)[^.\n€]{0,30}$", before) \
+            else "up to " if re.search(r"(?:bis zu|up to|max(?:imal|imum)?)\W{0,10}$", before) else ""
+        f = (lambda x: f"€{x:,.2f}".rstrip("0").rstrip(".")) if period == "hour" else (lambda x: f"€{x:,.0f}")
+        amount = f"{f(v)} – {f(hi)}" if hi and hi > v else f"{word}{f(v)}"
+        return f"{amount} {gross}/ {period}"
+    return ""
+
+
+def salary_for(job: dict, ai: dict | None = None) -> str:
+    """Best short salary line for a job: the board's own field, the AI's reading, or the ad text."""
+    for cand in (job.get("salary"), (ai or {}).get("salary")):
+        if not isinstance(cand, str):
+            continue
+        cand = (cand or "").strip()
+        if not cand or re.match(r"(0|none|n/?a|not (stated|specified|mentioned)|unknown|-)\b", cand, re.I):
+            continue
+        line = salary_line(cand)
+        if line:
+            return line
+        if len(cand) <= 40 and re.search(r"\d", cand):
+            return cand
+    return salary_line(job.get("description") or "")

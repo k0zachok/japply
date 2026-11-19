@@ -10,6 +10,7 @@ import urllib.parse
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from .insights import salary_for
 
 from . import pipeline
 from .core import connect, resolve
@@ -64,14 +65,19 @@ def make_handler(cfg):
                     only = q.get("only", [""])[0] == "filtered"
                     rows = con.execute(
                         "SELECT id, source, title, company, location, posted_at, first_seen, types, where_ok, "
-                        "flags, kw_score, ai_score, status, app_dir, apply_note, applied_at, "
+                        "flags, kw_score, ai_score, status, app_dir, apply_note, applied_at, salary, "
                         "json_extract(IIF(json_valid(ai_json), ai_json, NULL), '$.verdict') verdict, json_extract(IIF(json_valid(ai_json), ai_json, NULL), '$.salary') ai_salary, "
                         "json_extract(IIF(json_valid(ai_json), ai_json, NULL), '$.german_required') german, json_extract(IIF(json_valid(ai_json), ai_json, NULL), '$.seniority') level "
                         "FROM jobs WHERE status " + ("= 'filtered' " if only else "!= 'filtered' ") +
                         "ORDER BY COALESCE(ai_score, kw_score) DESC, first_seen DESC LIMIT " + ("500" if only else "3000")).fetchall()
                     n = con.execute("SELECT COUNT(*) FROM jobs WHERE status='filtered'").fetchone()[0]
                     con.close()
-                    return self._send(200, {"jobs": [dict(r) for r in rows], "filtered": n})
+                    out = []
+                    for r in rows:
+                        r = dict(r)
+                        r["ai_salary"] = salary_for({"salary": r.pop("salary", None)}, {"salary": r["ai_salary"]})
+                        out.append(r)
+                    return self._send(200, {"jobs": out, "filtered": n})
                 if u.path.startswith("/api/job/"):
                     con = connect(cfg)
                     d = pipeline.job_row(con, urllib.parse.unquote(u.path[9:]))
@@ -85,9 +91,7 @@ def make_handler(cfg):
                     low = desc.lower()
                     d["skills_hit"] = [k for k in cfg["profile"].get("skills", [])
                                        if re.search(rf"(?<![a-z]){re.escape(k)}(?![a-z])", low)][:14]
-                    m = re.search(r"[^.\n•]{0,90}(?:(?:€|EUR|Euro)\s?\d[\d.,']{2,}|\d[\d.,']{3,}\s?(?:€|EUR|Euro))[^.\n•]{0,70}", desc)
-                    d["salary_text"] = (d.get("salary") if not re.match(r"\s*0\b", d.get("salary") or "0") else "") or ((d.get("ai") or {}).get("salary") if isinstance(d.get("ai"), dict) else "") \
-                        or (" ".join(m.group(0).split()) if m else "")
+                    d["salary_text"] = salary_for(d, d.get("ai") if isinstance(d.get("ai"), dict) else None)
                     return self._send(200, d)
                 if u.path == "/api/questions":
                     con = connect(cfg)

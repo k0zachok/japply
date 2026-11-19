@@ -255,3 +255,15 @@ class PrefilterTest(unittest.TestCase):
         rel, other = prefilter({"search": {"relevant_titles": [], "other_titles": []}})
         self.assertTrue(worth_scoring(self.job("Verkäufer Praktikum", "intern"), rel, other))
         self.assertFalse(worth_scoring(self.job("Verkäufer"), rel, other))
+
+
+class SalaryTest(unittest.TestCase):
+    def test_lines(self):
+        from jobpilot.insights import salary_line as s
+        self.assertEqual(s("Due to legal reasons we are obliged to disclose the minimum salary, which is EUR 3,143 gross per month."), "from €3,143 gross / month")
+        self.assertEqual(s("Bruttomonatsgehalt ab EUR 2.064,00 (14x)"), "from €2,064 gross / month")
+        self.assertEqual(s("3.000 bis 3.800 € brutto monatlich"), "€3,000 – €3,800 gross / month")
+        self.assertEqual(s("40-55k EUR per year"), "€40,000 – €55,000 / year")
+        self.assertEqual(s("Jahresbruttogehalt ab EUR53.000,- mit Überzahlung"), "from €53,000 gross / year")
+        self.assertEqual(s("Einzahlungen ab EUR 100,-/Monat in die Pensionskasse"), "")
+        self.assertEqual(s("We work across Europe with 2000 people"), "")

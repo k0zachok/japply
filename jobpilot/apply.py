@@ -992,10 +992,34 @@ def profile_dir(cfg: dict) -> Path:
     return resolve(cfg, cfg.get("apply", {}).get("profile_dir", "browser_profile"))
 
 
+def _window(headless: bool) -> dict:
+    """Headless: a tall fixed page (good screenshots). Visible: the page follows the real window, so you can scroll."""
+    if headless:
+        return {"viewport": {"width": 1280, "height": 1600}}
+    return {"no_viewport": True, "args": ["--window-size=1280,900"]}
+
+
+BANNER_JS = """([text, ok]) => {
+  let b = document.getElementById('jobman-banner');
+  if (!b) { b = document.createElement('div'); b.id = 'jobman-banner'; document.documentElement.appendChild(b); }
+  b.textContent = text;
+  b.style.cssText = 'position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:2147483647;pointer-events:none;' +
+    'font:600 14px -apple-system,Segoe UI,sans-serif;padding:10px 16px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);' +
+    'color:#fff;background:' + (ok ? '#15803d' : '#2563eb');
+}"""
+
+
+def _banner(page, text: str, ok: bool = False) -> None:
+    """A note at the bottom of the visible window, so you know whether to wait or to act."""
+    try:
+        page.evaluate(BANNER_JS, [text, ok])
+    except Exception:
+        pass
+
+
 def open_profile(cfg: dict, pw, headless: bool):
     """The saved browser profile, with the sign-in cookies captured by `login` restored."""
-    ctx = pw.chromium.launch_persistent_context(str(profile_dir(cfg)), headless=headless, locale="en-GB",
-                                                viewport={"width": 1280, "height": 1600})
+    ctx = pw.chromium.launch_persistent_context(str(profile_dir(cfg)), headless=headless, locale="en-GB", **_window(headless))
     sf = profile_dir(cfg) / "jobpilot_state.json"
     if sf.exists():
         try:
@@ -1101,9 +1125,13 @@ def apply_one(cfg, con, llm, job: dict, ctx, pdf_browser, log=print, hand: bool 
             if mail:
                 raise NeedsYou(f"this job wants an e-mail to {mail} — enable [apply.email] in config.toml or send it yourself")
             raise
+        if hand:
+            _banner(page, "JobMan is filling in this form — please wait, don't type yet…")
         cv_pdf, letter_pdf, letter = documents()
         n, steps = 0, 0
         while True:                               # one pass per page of a multi-step application
+            if hand:
+                _banner(page, "JobMan is filling in this form — please wait, don't type yet…")
             n += _fill(cfg, con, llm, job, fr, fields, cv_pdf, letter_pdf, letter, log)
             page.wait_for_timeout(800)
             for _ in range(2):          # answers can reveal more fields ("other nationality: which?") — fill those too
@@ -1142,6 +1170,13 @@ def apply_one(cfg, con, llm, job: dict, ctx, pdf_browser, log=print, hand: bool 
             return "manual", (f"dry run: filled {n} fields" + (f" over {steps} steps" if steps > 1 else "") +
                               ", not submitted (see form_filled.jpg; set dry_run = false to apply)")
         if hand:
+            _banner(page, "✓ Filled in. Check the answers, complete any “I'm human” check, then click Submit.", ok=True)
+            try:
+                btn = _button(page, SUBMIT_BTN)
+                if btn is not None:
+                    btn.scroll_into_view_if_needed(timeout=3000)
+            except Exception:
+                pass
             _wait_user(page, log)
             page.screenshot(path=str(folder / "form_submitted.jpg"), full_page=True, type="jpeg", quality=55)
             return "applied", f"filled automatically ({n} fields), submitted by you"
@@ -1271,9 +1306,9 @@ def apply_queued(cfg: dict, con, log=print, ids: list[str] | None = None, hand: 
             if n == 0:
                 ctx, extra = open_profile(cfg, pw, headless=headless), None
             else:                                   # further browsers: fresh window with the saved sign-in cookies
-                extra = pw.chromium.launch(headless=headless)
+                extra = pw.chromium.launch(headless=headless, args=_window(headless).get("args", []))
                 sf = profile_dir(cfg) / "jobpilot_state.json"
-                ctx = extra.new_context(locale="en-GB", viewport={"width": 1280, "height": 1600},
+                ctx = extra.new_context(locale="en-GB", **{k: v for k, v in _window(headless).items() if k != "args"},
                                         **({"storage_state": str(sf)} if sf.exists() else {}))
             try:
                 for jid in jids:
